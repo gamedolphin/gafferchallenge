@@ -1,0 +1,13 @@
+[package]
+name = "forwarder"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "forwarder.rs"
+
+[dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio-util.workspace = true

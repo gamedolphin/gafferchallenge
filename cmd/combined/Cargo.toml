@@ -1,0 +1,20 @@
+[package]
+name = "combined"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio.workspace = true
+tokio-util.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+rand = "0.8.5"
+
+sender.workspace = true
+forwarder.workspace = true
+shutdown.workspace = true
