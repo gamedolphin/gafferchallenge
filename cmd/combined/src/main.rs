@@ -8,6 +8,9 @@ use rand::{thread_rng, Rng};
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
+    backend_port: i32,
+
+    #[arg(short, long)]
     server_port: i32,
 
     #[arg(short, long)]
@@ -23,12 +26,18 @@ async fn main() -> anyhow::Result<()> {
 
     let (join_handle, cancel) = shutdown::setup_shutdown();
 
+    let local_backend_addr: SocketAddr = format!("0.0.0.0:{}", args.backend_port).parse()?;
+    let backend_cancel = cancel.clone();
+    let backend_thread =
+        tokio::spawn(
+            async move { backend::start_backend(local_backend_addr, backend_cancel).await },
+        );
+
     let local_server_addr: SocketAddr = format!("0.0.0.0:{}", args.server_port).parse()?;
     let server_cancel = cancel.clone();
-    let server_thread =
-        tokio::spawn(
-            async move { forwarder::start_forwarder(local_server_addr, server_cancel).await },
-        );
+    let server_thread = tokio::spawn(async move {
+        forwarder::start_forwarder(local_server_addr, local_backend_addr, server_cancel).await
+    });
 
     let buffers = (0..100)
         .map(|_| {
@@ -54,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
     join_handle.await?;
     server_thread.await??;
     client_thread.await??;
+    backend_thread.await??;
 
     Ok(())
 }

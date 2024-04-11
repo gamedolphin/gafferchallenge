@@ -7,6 +7,9 @@ use clap::Parser;
 struct Args {
     #[arg(short, long)]
     port: i32,
+
+    #[arg(short, long)]
+    backend_addr: String,
 }
 
 #[tokio::main]
@@ -20,7 +23,9 @@ async fn main() -> anyhow::Result<()> {
 
     let (join_handle, cancel) = shutdown::setup_shutdown();
 
-    forwarder::start_forwarder(local_addr, cancel).await?;
+    let backend_addr: SocketAddr = args.backend_addr.parse()?;
+
+    forwarder::start_forwarder(local_addr, backend_addr, cancel).await?;
 
     join_handle.await?;
 

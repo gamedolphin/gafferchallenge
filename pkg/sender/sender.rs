@@ -18,6 +18,8 @@ pub async fn start_sender(
 
     let mut index = 0;
 
+    let mut buf = [0_u8; 100];
+
     loop {
         tokio::select! {
             _ = interval.tick() => {
@@ -33,6 +35,13 @@ pub async fn start_sender(
             }
             _ = cancel.cancelled() => {
                 return Ok(())
+            }
+            n = socket.recv_from(&mut buf) => {
+                let Ok((n, _)) = n else {
+                    continue;
+                };
+
+                tracing::info!("received hash: {}", std::str::from_utf8(&buf[0..n]).unwrap());
             }
         }
     }
