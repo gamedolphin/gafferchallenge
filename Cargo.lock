@@ -82,10 +82,13 @@ name = "backend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "fnv",
+ "clap",
+ "hasher",
+ "shutdown",
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -193,9 +196,9 @@ name = "combined"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "backend",
  "clap",
  "forwarder",
+ "hasher",
  "rand",
  "sender",
  "shutdown",
@@ -249,6 +252,17 @@ name = "gimli"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
+
+[[package]]
+name = "hasher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fnv",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
 
 [[package]]
 name = "heck"

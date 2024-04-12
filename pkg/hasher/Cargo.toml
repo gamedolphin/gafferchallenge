@@ -1,10 +1,10 @@
 [package]
-name = "backend"
+name = "hasher"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-path = "backend.rs"
+path = "hasher.rs"
 
 [dependencies]
 tokio.workspace = true

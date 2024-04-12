@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     let backend_cancel = cancel.clone();
     let backend_thread =
         tokio::spawn(
-            async move { backend::start_backend(local_backend_addr, backend_cancel).await },
+            async move { hasher::start_backend(local_backend_addr, backend_cancel).await },
         );
 
     let local_server_addr: SocketAddr = format!("0.0.0.0:{}", args.server_port).parse()?;

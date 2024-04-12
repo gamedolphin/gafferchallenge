@@ -1,5 +1,5 @@
 [package]
-name = "combined"
+name = "backend"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,9 +13,5 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-rand = "0.8.5"
-
-sender.workspace = true
-forwarder.workspace = true
 hasher.workspace = true
 shutdown.workspace = true
