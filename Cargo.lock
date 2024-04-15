@@ -219,6 +219,7 @@ name = "forwarder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "socket2",
  "tokio",
  "tokio-util",
  "tracing",

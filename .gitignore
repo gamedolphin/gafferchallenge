@@ -1,0 +1,7 @@
+/build/
+/terraform/.terraform/
+/terraform/*.tfvars
+/terraform/*.tfstate
+/terraform/*.backup
+/terraform/.terraform.lock.hcl
+*.out

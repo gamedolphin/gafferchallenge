@@ -33,15 +33,16 @@ pub async fn start_sender(
 
                 index += 1;
             }
-            _ = cancel.cancelled() => {
-                return Ok(())
-            }
             n = socket.recv_from(&mut buf) => {
                 let Ok((n, _)) = n else {
                     continue;
                 };
 
                 tracing::info!("received hash: {}", std::str::from_utf8(&buf[0..n]).unwrap());
+            }
+
+            _ = cancel.cancelled() => {
+                return Ok(())
             }
         }
     }

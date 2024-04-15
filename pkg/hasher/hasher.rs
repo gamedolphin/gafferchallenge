@@ -2,7 +2,7 @@ use fnv::FnvHasher;
 use std::hash::Hasher;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 
 use tokio_util::sync::CancellationToken;
 
@@ -10,7 +10,11 @@ pub async fn start_backend(
     local_addr: SocketAddr,
     cancelled: CancellationToken,
 ) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(local_addr).await?;
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseport(true)?;
+    socket.bind(local_addr)?;
+
+    let listener = socket.listen(1024)?;
 
     loop {
         tokio::select! {
@@ -55,7 +59,7 @@ async fn handle_connection(
 
                     let mut hasher = FnvHasher::default();
                     hasher.write(body.as_bytes());
-                    let hash = hasher.finish();
+                    let hash = hasher.finish(); // 64 bytes
 
                     let response = generate_response(from, hash);
 

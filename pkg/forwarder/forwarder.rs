@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
@@ -11,7 +12,12 @@ pub async fn start_forwarder(
     backend_addr: SocketAddr,
     cancelled: CancellationToken,
 ) -> anyhow::Result<()> {
-    let socket = UdpSocket::bind(local_addr).await?;
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_port(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&local_addr.into())?;
+
+    let socket = UdpSocket::from_std(socket.into())?;
 
     let mut backend_stream = TcpStream::connect(backend_addr).await?;
 
