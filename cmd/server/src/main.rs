@@ -29,14 +29,12 @@ async fn main() -> anyhow::Result<()> {
 
     let (join_handle, cancel) = shutdown::setup_shutdown();
 
-    let backend_addr: SocketAddr = args.backend_addr.parse()?;
+    // let backend_addr: SocketAddr = args.backend_addr.parse()?;
 
     let joins = (0..args.server_count)
         .map(|_| {
             let cancel_clone = cancel.clone();
-            tokio::spawn(async move {
-                forwarder::start_forwarder(local_addr, backend_addr, cancel_clone).await
-            })
+            tokio::spawn(async move { forwarder::start_forwarder(local_addr, cancel_clone).await })
         })
         .collect::<Vec<JoinHandle<anyhow::Result<()>>>>();
 

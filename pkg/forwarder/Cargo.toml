@@ -12,3 +12,4 @@ anyhow.workspace = true
 tracing.workspace = true
 tokio-util.workspace = true
 socket2.workspace = true
+fnv = "1.0.7"
