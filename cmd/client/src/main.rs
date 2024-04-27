@@ -1,4 +1,10 @@
+use anyhow::Context;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::task::JoinHandle;
+use tokio::time;
 
 use clap::Parser;
 use rand::distributions::Alphanumeric;
@@ -12,6 +18,9 @@ struct Args {
 
     #[arg(short, long)]
     frequency: u64,
+
+    #[arg(short, long)]
+    client_count: u64,
 }
 
 #[tokio::main]
@@ -19,16 +28,21 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)?;
+    tracing::subscriber::set_global_default(subscriber)
+        .context("failed to setup tracing subscriber")?;
 
-    let server_addr: SocketAddr = args.server_addr.parse()?;
+    let server_addr: SocketAddr = args
+        .server_addr
+        .parse()
+        .context("failed to parse server address")?;
 
     let local_addr: SocketAddr = if server_addr.is_ipv4() {
         "0.0.0.0:0"
     } else {
         "[::]:0"
     }
-    .parse()?;
+    .parse()
+    .context("failed to parse local address")?;
 
     let (join_handle, cancel) = shutdown::setup_shutdown();
 
@@ -41,14 +55,58 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Vec<Vec<u8>>>();
 
     tracing::info!(
-        "Starting client, connecting to {}, sending with frequency:{}",
-        args.server_addr,
+        "Starting client count: {}, connecting to {}, sending with frequency:{}",
+        args.client_count,
+        server_addr,
         args.frequency
     );
 
-    sender::start_sender(local_addr, server_addr, args.frequency, buffers, cancel).await?;
+    let client_count = args.client_count;
+    let sent_counter = Arc::new(AtomicU64::new(0));
+    let recv_counter = Arc::new(AtomicU64::new(0));
+
+    let joins = (0..client_count)
+        .map(|_| {
+            let buffers = buffers.clone();
+            let client_cancel = cancel.clone();
+            let counter_clone = sent_counter.clone();
+            let recv_counter_clone = recv_counter.clone();
+            tokio::spawn(async move {
+                sender::start_sender(
+                    local_addr,
+                    server_addr,
+                    args.frequency,
+                    &buffers,
+                    counter_clone,
+                    recv_counter_clone,
+                    client_cancel,
+                )
+                .await
+            })
+        })
+        .collect::<Vec<JoinHandle<anyhow::Result<()>>>>();
+
+    let mut interval = time::interval(Duration::from_secs(1));
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let sent_count = sent_counter.swap(0, Ordering::Relaxed);
+                let recv_count = recv_counter.swap(0, Ordering::Relaxed);
+                tracing::info!("sent {}, received: {}", sent_count, recv_count);
+            }
+
+            _ = cancel.cancelled() => {
+                break;
+            }
+        }
+    }
 
     join_handle.await?;
+
+    for join in joins {
+        join.await??;
+    }
 
     Ok(())
 }

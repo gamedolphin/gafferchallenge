@@ -1,5 +1,8 @@
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
+use anyhow::Context;
 use clap::Parser;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -60,23 +63,68 @@ async fn main() -> anyhow::Result<()> {
 
     let local_addr: SocketAddr = "0.0.0.0:0".parse()?;
     let client_cancel = cancel.clone();
+    let sent_count = Arc::new(AtomicU64::new(0));
+    let recv_count = Arc::new(AtomicU64::new(0));
+    let buffer1 = buffers.clone();
+
+    let sent_count1 = sent_count.clone();
+    let recv_count1 = recv_count.clone();
     let client_thread = tokio::spawn(async move {
         sender::start_sender(
             local_addr,
             local_server_addr,
             args.frequency,
-            buffers,
+            &buffer1,
+            sent_count1,
+            recv_count1,
             client_cancel,
         )
         .await
     });
 
-    join_handle.await?;
-    server_thread.await??;
-    server_thread2.await??;
-    client_thread.await??;
-    backend_thread.await??;
-    backend_thread2.await??;
+    let client_cancel2 = cancel.clone();
+    let sent_count2 = sent_count.clone();
+    let recv_count2 = recv_count.clone();
+    let client_thread2 = tokio::spawn(async move {
+        sender::start_sender(
+            local_addr,
+            local_server_addr,
+            args.frequency,
+            &buffers,
+            sent_count2,
+            recv_count2,
+            client_cancel2,
+        )
+        .await
+    });
+
+    join_handle
+        .await
+        .context("failed to shutdown the shutdown watcher cleanly")?;
+    client_thread
+        .await
+        .context("failed to shutdown client 1 thread ")?
+        .context("failed to shutdown sender 1")?;
+    client_thread2
+        .await
+        .context("failed to shutdown client 2 thread ")?
+        .context("failed to shutdown sender 2")?;
+    server_thread
+        .await
+        .context("failed to shutdown server 1 thread ")?
+        .context("failed to shutdown forwarder 1")?;
+    server_thread2
+        .await
+        .context("failed to shutdown server 2 thread ")?
+        .context("failed to shutdown forwarder 2")?;
+    backend_thread
+        .await
+        .context("failed to shutdown backend 1 thread ")?
+        .context("failed to shutdown hasher 1")?;
+    backend_thread2
+        .await
+        .context("failed to shutdown backend 2 thread ")?
+        .context("failed to shutdown hasher 2")?;
 
     Ok(())
 }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use fnv::FnvHasher;
 use std::hash::Hasher;
 use std::net::SocketAddr;
@@ -15,6 +16,8 @@ pub async fn start_backend(
     socket.bind(local_addr)?;
 
     let listener = socket.listen(1024)?;
+
+    tracing::info!("listening on : {}", local_addr);
 
     loop {
         tokio::select! {
@@ -50,12 +53,14 @@ async fn handle_connection(
                     };
 
                     if n == 0 {
-                        continue
+                        return
                     }
 
-                    let (from, body) = parse_request(&buf[0..n]);
+                    let Ok((from, body)) = parse_request(&buf[0..n]) else {
+                        continue;
+                    };
 
-                    tracing::info!("received {} from {}", body, from);
+                    tracing::debug!("received {} from {}", body, from);
 
                     let mut hasher = FnvHasher::default();
                     hasher.write(body.as_bytes());
@@ -63,11 +68,13 @@ async fn handle_connection(
 
                     let response = generate_response(from, hash);
 
-                    tracing::info!("responding with {}", hash);
+                    tracing::debug!("responding with {}", hash);
 
-                    socket
+                    let Ok(_) = socket
                     .write_all(response.as_bytes())
-                    .await.unwrap();
+                    .await else {
+                        continue
+                    };
                 }
             }
         }
@@ -76,19 +83,19 @@ async fn handle_connection(
     Ok(())
 }
 
-fn parse_request(buf: &[u8]) -> (&str, &str) {
-    let req = std::str::from_utf8(buf).unwrap();
+fn parse_request(buf: &[u8]) -> anyhow::Result<(&str, &str)> {
+    let req = std::str::from_utf8(buf).context("unable to parse incoming bytes into string")?;
     let mut lines = req.lines();
 
-    let _ = lines.next().unwrap(); // GET <path> HTTP/1.1
+    let _ = lines.next().context("failed to get first line")?; // GET <path> HTTP/1.1
 
-    let host = lines.next().unwrap(); // Host: someplace:someport
+    let host = lines.next().context("missing host header")?; // Host: someplace:someport
 
-    let _ = lines.next().unwrap(); // empty line
+    let _ = lines.next().context("missing empty line")?; // empty line
 
-    let body = lines.next().unwrap();
+    let body = lines.next().context("missing body")?;
 
-    (host, body)
+    Ok((host, body))
 }
 
 fn generate_response(from: &str, hash: u64) -> String {

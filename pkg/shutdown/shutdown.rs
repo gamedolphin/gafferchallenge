@@ -8,7 +8,7 @@ pub fn setup_shutdown() -> (JoinHandle<()>, CancellationToken) {
     let join_handle = tokio::spawn(async move {
         match signal::ctrl_c().await {
             Ok(()) => {
-                tracing::info!("shutting down server");
+                tracing::info!("shutting down");
                 cloned_cancel.cancel();
             }
             Err(e) => {

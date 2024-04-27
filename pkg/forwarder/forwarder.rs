@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use anyhow::Context;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -13,11 +14,12 @@ pub async fn start_forwarder(
     cancelled: CancellationToken,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    socket.set_reuse_port(true)?;
     socket.set_nonblocking(true)?;
+    socket.set_reuse_port(true)?;
     socket.bind(&local_addr.into())?;
 
     let socket = UdpSocket::from_std(socket.into())?;
+    // let socket = UdpSocket::bind(&local_addr).await?;
 
     let mut backend_stream = TcpStream::connect(backend_addr).await?;
 
@@ -29,53 +31,83 @@ pub async fn start_forwarder(
 
     loop {
         tokio::select! {
-            _ = cancelled.cancelled() => {
-                tracing::info!("shutting down forwarder!");
-                return Ok(())
-            }
             n = socket.recv_from(&mut buf) => {
-                let Ok((n, host)) = n else {
-                    continue;
+                let (n, host) = match n {
+                    Ok((n, host)) => (n, host),
+                    Err(e)=> {
+                        tracing::debug!("failed to recv on udp: {}", e);
+                        continue;
+                    }
                 };
 
-                tracing::info!("receiving and forwarding {}", std::str::from_utf8(&buf[0..n]).unwrap());
-
                 let request = create_request(host, &buf[0..n]);
-                backend_stream.write_all(request.as_bytes()).await?;
+
+                tracing::trace!("receiving from {} and forwarding {}", host, request);
+
+                if let Err(e) = backend_stream.write_all(request.as_bytes()).await {
+                    tracing::error!("failed to forward received packet: {}", e);
+                    continue;
+                }
             }
             resp = backend_stream.read(&mut backend_response) => {
-                let Ok(n) = resp else {
-                    continue;
+                let n = match resp {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::error!("failed to receive backend response: {}", e);
+                        continue;
+                    }
                 };
 
                 if n == 0 {
-                    continue
+                    tracing::debug!("received empty backend response, closing connection");
+                    return Ok(());
                 }
 
-                let (from, body) = parse_response(&backend_response[0..n]);
+                let (from, body) = match parse_response(&backend_response[0..n]) {
+                    Ok((from, body)) => (from, body),
+                    Err(e)=> {
+                        tracing::error!("failed to parse incoming response: {}", e);
+                        continue;
+                    }
+                };
 
-                tracing::info!("received hash, forwarding: {} for {}", body, from);
+                tracing::debug!("received hash, forwarding: {} for {}", body, from);
 
-                socket.send_to(body.as_bytes(), from).await?;
+                if let Err(e) = socket.send_to(body.as_bytes(), from).await {
+                    tracing::error!("failed to return received packet: {}", e);
+                    continue;
+                }
+            }
+            _ = cancelled.cancelled() => {
+                tracing::info!("shutting down forwarder!");
+                return Ok(())
             }
         }
     }
 }
 
-fn parse_response(buf: &[u8]) -> (SocketAddr, &str) {
-    let buf = std::str::from_utf8(buf).unwrap();
+fn parse_response(buf: &[u8]) -> anyhow::Result<(SocketAddr, &str)> {
+    let buf = std::str::from_utf8(buf).context("failed to parse bytes into utf8 string")?;
+    tracing::trace!("received from backend: {}", buf,);
+
     let mut lines = buf.lines();
 
-    let _ = lines.next().unwrap(); // HTTP/1.1 200 OK
-    let host = lines.next().unwrap(); // Host: <addr>
+    let _ = lines
+        .next()
+        .context("failed to parse http response header")?; // HTTP/1.1 200 OK
+    let host = lines.next().context("failed to parse host")?; // Host: <addr>
     let mut host = host.split(' ');
-    let _ = host.next().unwrap(); // Host:
-    let addr: SocketAddr = host.next().unwrap().parse().unwrap();
+    let _ = host.next().context("failed to get host header part")?; // Host:
+    let addr: SocketAddr = host
+        .next()
+        .context(format!("failed to get host part, {}", buf))?
+        .parse()
+        .context("failed to parse host addr")?;
 
     let _ = lines.next().unwrap(); // empty line
     let body = lines.next().unwrap();
 
-    (addr, body)
+    Ok((addr, body))
 }
 
 fn create_request(host: SocketAddr, data: &[u8]) -> String {
