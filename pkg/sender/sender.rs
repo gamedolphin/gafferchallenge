@@ -44,6 +44,14 @@ pub async fn start_sender(
     //         async move { recv_another_thread(socket_recv, sent_clone, cancel_clone).await },
     //     );
 
+    let recv_addr = socket.local_addr()?;
+    let recv_counter_clone = recv_counter.clone();
+    let cancel_clone = cancel.clone();
+
+    let join = tokio::spawn(async move {
+        recv_another_thread(recv_addr, recv_counter_clone, cancel_clone).await
+    });
+
     loop {
         tokio::select! {
             _ = interval.tick() => {
@@ -75,6 +83,7 @@ pub async fn start_sender(
 
             _ = cancel.cancelled() => {
                 tracing::debug!("shutting down sender");
+                join.await??;
                 return Ok(())
             }
         }
@@ -82,10 +91,18 @@ pub async fn start_sender(
 }
 
 async fn recv_another_thread(
-    socket: &UdpSocket,
+    local_addr: SocketAddr,
     recv_counter: Arc<AtomicU64>,
     cancel: CancellationToken,
 ) -> anyhow::Result<()> {
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_port(true)?;
+    socket.set_recv_buffer_size(12582912)?;
+    socket.set_send_buffer_size(12582912)?;
+    socket.bind(&local_addr.into())?;
+
+    let socket = UdpSocket::from_std(socket.into())?;
     let mut buf = [0_u8; 100];
     loop {
         tokio::select! {
