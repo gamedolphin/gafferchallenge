@@ -93,7 +93,9 @@ async fn main() -> anyhow::Result<()> {
             _ = interval.tick() => {
                 let sent_count = sent_counter.swap(0, Ordering::Relaxed);
                 let recv_count = recv_counter.swap(0, Ordering::Relaxed);
-                tracing::info!("sent {}, received: {}", sent_count, recv_count);
+                // 100 bytes sent, 64 bytes returned
+                let total_mb = (sent_count*100 + recv_count*64)/1024;
+                tracing::info!("sent {}, received: {}, total bandwidth: {} mbs/s", sent_count, recv_count, total_mb);
             }
 
             _ = cancel.cancelled() => {
