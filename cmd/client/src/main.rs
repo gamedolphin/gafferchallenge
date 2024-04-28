@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
                 let sent_count = sent_counter.swap(0, Ordering::Relaxed);
                 let recv_count = recv_counter.swap(0, Ordering::Relaxed);
                 // 100 bytes sent, 64 bytes returned
-                let total_mb = (sent_count*100 + recv_count*64)/1024;
+                let total_mb = (sent_count*100 + recv_count*64)/(1024*1024);
                 tracing::info!("sent {}, received: {}, total bandwidth: {} mbs/s", sent_count, recv_count, total_mb);
             }
 
