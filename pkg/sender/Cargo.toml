@@ -11,3 +11,4 @@ tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tokio-util.workspace = true
+socket2.workspace = true

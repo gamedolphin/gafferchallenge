@@ -1,3 +1,4 @@
+use socket2::{Domain, Protocol, Socket, Type};
 use std::{
     net::SocketAddr,
     sync::{
@@ -18,7 +19,14 @@ pub async fn start_sender(
     recv_counter: Arc<AtomicU64>,
     cancel: CancellationToken,
 ) -> anyhow::Result<()> {
-    let socket = UdpSocket::bind(local_addr).await?;
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_port(true)?;
+    socket.set_recv_buffer_size(12582912)?;
+    socket.set_send_buffer_size(12582912)?;
+    socket.bind(&local_addr.into())?;
+
+    let socket = UdpSocket::from_std(socket.into())?;
 
     socket.connect(&server_addr).await?;
 
@@ -27,6 +35,14 @@ pub async fn start_sender(
     let mut index = 0;
 
     let mut buf = [0_u8; 100];
+
+    // let sent_clone = sent_counter.clone();
+    // let cancel_clone = cancel.clone();
+    // let socket_recv = &socket;
+    // let joiner =
+    //     tokio::spawn(
+    //         async move { recv_another_thread(socket_recv, sent_clone, cancel_clone).await },
+    //     );
 
     loop {
         tokio::select! {
@@ -47,6 +63,32 @@ pub async fn start_sender(
                 sent_counter.fetch_add(1, Ordering::Relaxed);
 
             }
+            n = socket.recv_from(&mut buf) => {
+                let Ok((n, _)) = n else {
+                    continue;
+                };
+
+                recv_counter.fetch_add(1, Ordering::Relaxed);
+
+                tracing::debug!("received hash: {}", std::str::from_utf8(&buf[0..n]).unwrap());
+            }
+
+            _ = cancel.cancelled() => {
+                tracing::debug!("shutting down sender");
+                return Ok(())
+            }
+        }
+    }
+}
+
+async fn recv_another_thread(
+    socket: &UdpSocket,
+    recv_counter: Arc<AtomicU64>,
+    cancel: CancellationToken,
+) -> anyhow::Result<()> {
+    let mut buf = [0_u8; 100];
+    loop {
+        tokio::select! {
             n = socket.recv_from(&mut buf) => {
                 let Ok((n, _)) = n else {
                     continue;

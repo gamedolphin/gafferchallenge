@@ -25,6 +25,8 @@ pub async fn start_forwarder(
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;
+    socket.set_recv_buffer_size(12582912)?;
+    socket.set_send_buffer_size(12582912)?;
     socket.bind(&local_addr.into())?;
 
     let socket = UdpSocket::from_std(socket.into())?;
