@@ -44,16 +44,34 @@ async fn main() -> anyhow::Result<()> {
 
     let local_server_addr: SocketAddr = format!("0.0.0.0:{}", args.server_port).parse()?;
     let server_cancel = cancel.clone();
-    let server_thread =
-        tokio::spawn(
-            async move { forwarder::start_forwarder(local_server_addr, server_cancel).await },
-        );
+
+    let sent_counter = Arc::new(AtomicU64::new(0));
+    let recv_counter = Arc::new(AtomicU64::new(0));
+
+    let server_send_counter1 = sent_counter.clone();
+    let server_recv_counter1 = recv_counter.clone();
+    let server_thread = tokio::spawn(async move {
+        forwarder::start_forwarder(
+            local_server_addr,
+            server_send_counter1,
+            server_recv_counter1,
+            server_cancel,
+        )
+        .await
+    });
 
     let server_cancel2 = cancel.clone();
-    let server_thread2 =
-        tokio::spawn(
-            async move { forwarder::start_forwarder(local_server_addr, server_cancel2).await },
-        );
+    let server_send_counter2 = sent_counter.clone();
+    let server_recv_counter2 = recv_counter.clone();
+    let server_thread2 = tokio::spawn(async move {
+        forwarder::start_forwarder(
+            local_server_addr,
+            server_send_counter2,
+            server_recv_counter2,
+            server_cancel2,
+        )
+        .await
+    });
 
     let buffers = (0..100)
         .map(|_| {

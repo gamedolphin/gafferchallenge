@@ -1,4 +1,10 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 // use anyhow::Context;
 use fnv::FnvHasher;
@@ -12,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 
 pub async fn start_forwarder(
     local_addr: SocketAddr,
+    sent_counter: Arc<AtomicU64>,
+    recv_counter: Arc<AtomicU64>,
     cancelled: CancellationToken,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
@@ -41,6 +49,8 @@ pub async fn start_forwarder(
                     }
                 };
 
+                recv_counter.fetch_add(1, Ordering::Relaxed);
+
                 let hash = hash_incoming(&buf[0..n]);
 
                 // let request = create_request(host, &buf[0..n]);
@@ -51,6 +61,8 @@ pub async fn start_forwarder(
                     tracing::error!("failed to return received packet: {}", e);
                     continue;
                 }
+
+                sent_counter.fetch_add(1, Ordering::Relaxed);
 
                 // if let Err(e) = backend_stream.write_all(request.as_bytes()).await {
                 //     tracing::error!("failed to forward received packet: {}", e);
