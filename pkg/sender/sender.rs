@@ -48,9 +48,9 @@ pub async fn start_sender(
     let recv_counter_clone = recv_counter.clone();
     let cancel_clone = cancel.clone();
 
-    let join = tokio::spawn(async move {
-        recv_another_thread(recv_addr, recv_counter_clone, cancel_clone).await
-    });
+    // let join = tokio::spawn(async move {
+    //     recv_another_thread(recv_addr, recv_counter_clone, cancel_clone).await
+    // });
 
     loop {
         tokio::select! {
@@ -83,7 +83,7 @@ pub async fn start_sender(
 
             _ = cancel.cancelled() => {
                 tracing::debug!("shutting down sender");
-                join.await??;
+                // join.await??;
                 return Ok(())
             }
         }

@@ -19,3 +19,7 @@ sender = { path = "./pkg/sender" }
 forwarder = { path = "./pkg/forwarder" }
 hasher = { path = "./pkg/hasher" }
 shutdown = { path = "./pkg/shutdown" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
