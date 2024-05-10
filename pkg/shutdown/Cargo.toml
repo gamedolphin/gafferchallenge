@@ -11,3 +11,5 @@ tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tokio-util.workspace = true
+monoio.workspace = true
+ctrlc = "3.4.4"

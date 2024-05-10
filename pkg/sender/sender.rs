@@ -1,23 +1,24 @@
+use monoio::io::CancelHandle;
+use monoio::net::udp::UdpSocket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
 };
-use tokio::{net::UdpSocket, time};
-use tokio_util::sync::CancellationToken;
 
 pub async fn start_sender(
     local_addr: SocketAddr,
     server_addr: SocketAddr,
     frequency: u64,
-    buffers: &[Vec<u8>],
+    buffers: &'static [&'static [u8; 100]; 4],
     sent_counter: Arc<AtomicU64>,
+    canceller: CancelHandle,
+    cancel_tag: Arc<AtomicBool>,
     recv_counter: Arc<AtomicU64>,
-    cancel: CancellationToken,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
@@ -28,13 +29,11 @@ pub async fn start_sender(
 
     let socket = UdpSocket::from_std(socket.into())?;
 
-    socket.connect(&server_addr).await?;
-
-    let mut interval = time::interval(Duration::from_millis(1000 / frequency));
+    socket.connect(server_addr).await?;
 
     let mut index = 0;
 
-    let mut buf = [0_u8; 100];
+    // let mut buf = [0_u8; 100];
 
     // let sent_clone = sent_counter.clone();
     // let cancel_clone = cancel.clone();
@@ -44,56 +43,52 @@ pub async fn start_sender(
     //         async move { recv_another_thread(socket_recv, sent_clone, cancel_clone).await },
     //     );
 
-    let recv_addr = socket.local_addr()?;
-    let recv_counter_clone = recv_counter.clone();
-    let cancel_clone = cancel.clone();
+    // let _recv_addr = socket.local_addr()?;
+    // let _recv_counter_clone = recv_counter.clone();
+    // let _cancel_clone = cancel.clone();
 
-    let join = tokio::spawn(async move {
-        recv_another_thread(recv_addr, recv_counter_clone, cancel_clone).await
-    });
+    let recv_addr = socket.local_addr()?;
+
+    let cloned_cancel = canceller.clone();
+    let joined = monoio::spawn(recv_another_thread(
+        recv_addr,
+        recv_counter,
+        cancel_tag.clone(),
+        canceller,
+    ));
 
     loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                if index >= buffers.len() {
-                    index = 0;
-                }
-
-                let buf = &buffers[index];
-                tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
-                if let Err(e) = socket.send(buf).await {
-                    tracing::debug!("failed to send {}", e);
-                    continue;
-                }
-
-                index += 1;
-
-                sent_counter.fetch_add(1, Ordering::Relaxed);
-
-            }
-            n = socket.recv_from(&mut buf) => {
-                let Ok((n, _)) = n else {
-                    continue;
-                };
-
-                recv_counter.fetch_add(1, Ordering::Relaxed);
-
-                tracing::debug!("received hash: {}", std::str::from_utf8(&buf[0..n]).unwrap());
-            }
-
-            _ = cancel.cancelled() => {
-                tracing::debug!("shutting down sender");
-                join.await??;
-                return Ok(())
-            }
+        if cancel_tag.load(Ordering::SeqCst) {
+            break;
         }
+
+        monoio::time::sleep(Duration::from_millis(1000 / frequency)).await;
+        if index >= buffers.len() {
+            index = 0;
+        }
+
+        let buf = buffers[index];
+
+        tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
+        let (res, _) = socket.cancelable_send(buf, cloned_cancel.clone()).await;
+        if let Err(e) = res {
+            tracing::debug!("failed to send {}", e);
+            continue;
+        }
+
+        index += 1;
+
+        sent_counter.fetch_add(1, Ordering::Relaxed);
     }
+
+    joined.await
 }
 
 async fn recv_another_thread(
     local_addr: SocketAddr,
     recv_counter: Arc<AtomicU64>,
-    cancel: CancellationToken,
+    cancel_tag: Arc<AtomicBool>,
+    canceller: CancelHandle,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
@@ -103,23 +98,29 @@ async fn recv_another_thread(
     socket.bind(&local_addr.into())?;
 
     let socket = UdpSocket::from_std(socket.into())?;
-    let mut buf = [0_u8; 100];
+    let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+    let mut res;
+
     loop {
-        tokio::select! {
-            n = socket.recv_from(&mut buf) => {
-                let Ok((n, _)) = n else {
-                    continue;
-                };
-
-                recv_counter.fetch_add(1, Ordering::Relaxed);
-
-                tracing::debug!("received hash: {}", std::str::from_utf8(&buf[0..n]).unwrap());
-            }
-
-            _ = cancel.cancelled() => {
-                tracing::debug!("shutting down sender");
-                return Ok(())
-            }
+        if cancel_tag.load(Ordering::SeqCst) {
+            break;
         }
+
+        (res, buf) = socket.cancelable_recv(buf, canceller.clone()).await;
+
+        let Ok(n) = res else {
+            break;
+        };
+
+        recv_counter.fetch_add(1, Ordering::Relaxed);
+
+        tracing::debug!(
+            "received hash: {}",
+            std::str::from_utf8(&buf[0..n]).unwrap()
+        );
     }
+
+    tracing::debug!("shutting down sender");
+
+    Ok(())
 }

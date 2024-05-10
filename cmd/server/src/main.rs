@@ -9,7 +9,6 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
-use tokio::{task::JoinHandle, time};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -24,7 +23,7 @@ struct Args {
     server_count: u64,
 }
 
-#[tokio::main]
+#[monoio::main(timer_enabled = true, entries = 32768)]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -34,49 +33,46 @@ async fn main() -> anyhow::Result<()> {
 
     let local_addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
 
-    let (join_handle, cancel) = shutdown::setup_shutdown();
-
     // let backend_addr: SocketAddr = args.backend_addr.parse()?;
     let sent_counter = Arc::new(AtomicU64::new(0));
     let recv_counter = Arc::new(AtomicU64::new(0));
 
+    let (join_handle, cancel, cancel_tag) = shutdown::setup_monoio_shutdown();
+
     let joins = (0..args.server_count)
         .map(|_| {
-            let cancel_clone = cancel.clone();
             let counter_clone = sent_counter.clone();
             let recv_counter_clone = recv_counter.clone();
-            tokio::spawn(async move {
+            let cancel_channel_clone = cancel_tag.clone();
+            let client_cancel = cancel.clone();
+            monoio::spawn(async move {
                 forwarder::start_forwarder(
                     local_addr,
                     counter_clone,
                     recv_counter_clone,
-                    cancel_clone,
+                    client_cancel,
+                    cancel_channel_clone,
                 )
                 .await
             })
         })
-        .collect::<Vec<JoinHandle<anyhow::Result<()>>>>();
-
-    let mut interval = time::interval(Duration::from_secs(1));
+        .collect::<Vec<monoio::task::JoinHandle<anyhow::Result<()>>>>();
 
     loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                let sent_count = sent_counter.swap(0, Ordering::Relaxed);
-                let recv_count = recv_counter.swap(0, Ordering::Relaxed);
-                tracing::info!("sent {}, received: {}", sent_count, recv_count);
-            }
+        monoio::time::sleep(Duration::from_secs(1)).await;
+        let sent_count = sent_counter.swap(0, Ordering::Relaxed);
+        let recv_count = recv_counter.swap(0, Ordering::Relaxed);
+        tracing::info!("sent {}, received: {}", sent_count, recv_count);
 
-            _ = cancel.cancelled() => {
-                break;
-            }
+        if cancel_tag.load(Ordering::SeqCst) {
+            break;
         }
     }
 
-    join_handle.await?;
+    join_handle.await;
 
     for join in joins {
-        join.await??;
+        join.await?;
     }
 
     Ok(())

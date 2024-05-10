@@ -12,6 +12,8 @@ clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+monoio.workspace = true
+crossbeam.workspace = true
 
 forwarder.workspace = true
 shutdown.workspace = true

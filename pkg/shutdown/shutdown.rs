@@ -1,3 +1,12 @@
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
+use monoio::io::{CancelHandle, Canceller};
 use tokio::{signal, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -19,4 +28,32 @@ pub fn setup_shutdown() -> (JoinHandle<()>, CancellationToken) {
     });
 
     (join_handle, cancel)
+}
+
+pub fn setup_monoio_shutdown() -> (monoio::task::JoinHandle<()>, CancelHandle, Arc<AtomicBool>) {
+    let canceller = Canceller::new();
+    let cancel_handle = canceller.handle();
+    let ended = Arc::new(AtomicBool::new(false));
+
+    let handler_clone = ended.clone();
+    ctrlc::set_handler(move || {
+        tracing::info!("shutting down");
+        handler_clone.store(true, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    let ended_clone = ended.clone();
+    let join_handle = monoio::spawn(async move {
+        loop {
+            monoio::time::sleep(Duration::from_millis(500)).await;
+            let ended = ended.load(Ordering::SeqCst);
+            if ended {
+                tracing::info!("sending shutdown signal, cancel op");
+                canceller.cancel();
+                return;
+            }
+        }
+    });
+
+    (join_handle, cancel_handle, ended_clone)
 }

@@ -1,26 +1,23 @@
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
 
-// use anyhow::Context;
 use fnv::FnvHasher;
+use monoio::io::CancelHandle;
+use monoio::net::udp::UdpSocket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::hash::Hasher;
-use tokio::{
-    // io::{AsyncReadExt, AsyncWriteExt},
-    net::UdpSocket,
-};
-use tokio_util::sync::CancellationToken;
 
 pub async fn start_forwarder(
     local_addr: SocketAddr,
     sent_counter: Arc<AtomicU64>,
     recv_counter: Arc<AtomicU64>,
-    cancelled: CancellationToken,
+    canceller: CancelHandle,
+    cancel_tag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
@@ -36,70 +33,35 @@ pub async fn start_forwarder(
 
     tracing::info!("Server listening on : {}", socket.local_addr()?);
 
-    let mut buf = [0_u8; 100];
+    let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+    let mut res;
 
     // let mut backend_response = [0_u8; 1024];
 
     loop {
-        tokio::select! {
-            n = socket.recv_from(&mut buf) => {
-                let (n, host) = match n {
-                    Ok((n, host)) => (n, host),
-                    Err(e)=> {
-                        tracing::debug!("failed to recv on udp: {}", e);
-                        continue;
-                    }
-                };
+        if cancel_tag.load(Ordering::SeqCst) {
+            break Ok(());
+        }
 
-                recv_counter.fetch_add(1, Ordering::Relaxed);
+        (res, buf) = socket.cancelable_recv_from(buf, canceller.clone()).await;
 
-                let hash = hash_incoming(&buf[0..n]);
+        let (n, host) = match res {
+            Ok(n) => n,
+            Err(e) => break Err(e.into()),
+        };
 
-                // let request = create_request(host, &buf[0..n]);
+        recv_counter.fetch_add(1, Ordering::Relaxed);
+        sent_counter.fetch_add(1, Ordering::Relaxed);
 
-                // tracing::trace!("receiving from {} and forwarding {}", host, request);
+        let hash = hash_incoming(&buf[0..n]);
+        let hash_bytes = Box::new(hash.to_le_bytes());
 
-                if let Err(e) = socket.send_to(&hash.to_be_bytes(), host).await {
-                    tracing::error!("failed to return received packet: {}", e);
-                    continue;
-                }
-
-                sent_counter.fetch_add(1, Ordering::Relaxed);
-
-                // if let Err(e) = backend_stream.write_all(request.as_bytes()).await {
-                //     tracing::error!("failed to forward received packet: {}", e);
-                //     continue;
-                // }
-            }
-            // resp = backend_stream.read(&mut backend_response) => {
-            //     let n = match resp {
-            //         Ok(n) => n,
-            //         Err(e) => {
-            //             tracing::error!("failed to receive backend response: {}", e);
-            //             continue;
-            //         }
-            //     };
-
-            //     if n == 0 {
-            //         tracing::debug!("received empty backend response, closing connection");
-            //         return Ok(());
-            //     }
-
-            //     let (from, body) = match parse_response(&backend_response[0..n]) {
-            //         Ok((from, body)) => (from, body),
-            //         Err(e)=> {
-            //             tracing::error!("failed to parse incoming response: {}", e);
-            //             continue;
-            //         }
-            //     };
-
-            //     tracing::debug!("received hash, forwarding: {} for {}", body, from);
-
-            // }
-            _ = cancelled.cancelled() => {
-                tracing::info!("shutting down forwarder!");
-                return Ok(())
-            }
+        let (res, _) = socket
+            .cancelable_send_to(hash_bytes, host, canceller.clone())
+            .await;
+        if let Err(e) = res {
+            tracing::error!("failed to return received packet: {}", e);
+            continue;
         }
     }
 }
