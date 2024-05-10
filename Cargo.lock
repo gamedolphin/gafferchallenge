@@ -205,13 +205,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "crossbeam",
  "monoio",
  "rand",
  "sender",
  "shutdown",
- "tokio",
- "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -687,12 +684,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "crossbeam",
  "forwarder",
  "monoio",
  "shutdown",
- "tokio",
- "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
