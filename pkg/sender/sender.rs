@@ -102,7 +102,7 @@ async fn recv_another_thread(
     let mut res;
 
     loop {
-        if cancel_tag.load(Ordering::SeqCst) {
+        if cancel_tag.load(Ordering::Relaxed) {
             break;
         }
 
@@ -118,6 +118,8 @@ async fn recv_another_thread(
             "received hash: {}",
             std::str::from_utf8(&buf[0..n]).unwrap()
         );
+
+        buf.clear();
     }
 
     tracing::debug!("shutting down sender");

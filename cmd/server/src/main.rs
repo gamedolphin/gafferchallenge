@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -23,15 +22,15 @@ struct Args {
     server_count: u64,
 }
 
-#[monoio::main(timer_enabled = true, entries = 32768)]
-async fn main() -> anyhow::Result<()> {
+#[monoio::main(timer_enabled = true, entries = 4294967295, worker_threads = 12)]
+async fn main() {
     let args = Args::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)
-        .context("failed to setup tracing subscriber")?;
+        .expect("failed to setup tracing subscriber");
 
-    let local_addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
+    let local_addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse().unwrap();
 
     // let backend_addr: SocketAddr = args.backend_addr.parse()?;
     let sent_counter = Arc::new(AtomicU64::new(0));
@@ -72,8 +71,6 @@ async fn main() -> anyhow::Result<()> {
     join_handle.await;
 
     for join in joins {
-        join.await?;
+        join.await.expect("failed to join threads");
     }
-
-    Ok(())
 }

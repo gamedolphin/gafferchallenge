@@ -1,4 +1,3 @@
-use anyhow::Context;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -79,18 +78,18 @@ static BUFFER4: [u8; 100] = [
 ];
 static BUFFERS: [&[u8; 100]; 4] = [&BUFFER1, &BUFFER2, &BUFFER3, &BUFFER4];
 
-#[monoio::main(timer_enabled = true, entries = 32768)]
-async fn main() -> anyhow::Result<()> {
+#[monoio::main(timer_enabled = true, entries = 4294967295, worker_threads = 12)]
+async fn main() {
     let args = Args::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)
-        .context("failed to setup tracing subscriber")?;
+        .expect("failed to setup tracing subscriber");
 
     let server_addr: SocketAddr = args
         .server_addr
         .parse()
-        .context("failed to parse server address")?;
+        .expect("failed to parse server address");
 
     let local_addr: SocketAddr = if server_addr.is_ipv4() {
         "0.0.0.0:0"
@@ -98,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
         "[::]:0"
     }
     .parse()
-    .context("failed to parse local address")?;
+    .expect("failed to parse local address");
 
     let (join_handle, cancel, cancel_tag) = shutdown::setup_monoio_shutdown();
 
@@ -164,8 +163,6 @@ async fn main() -> anyhow::Result<()> {
     join_handle.await;
 
     for join in joins {
-        join.await?;
+        join.await.expect("failed to join all threads");
     }
-
-    Ok(())
 }
