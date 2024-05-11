@@ -18,6 +18,7 @@ pub async fn start_sender(
     sent_counter: Arc<AtomicU64>,
     recv_counter: Arc<AtomicU64>,
     cancel_bool: Arc<AtomicBool>,
+    cancel_handle: CancelHandle,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
@@ -48,13 +49,11 @@ pub async fn start_sender(
 
     let recv_addr = socket.local_addr()?;
 
-    let cancel = shutdown::watch_shutdown(cancel_bool.clone());
-
     let joined = monoio::spawn(recv_another_thread(
         recv_addr,
         recv_counter,
         cancel_bool.clone(),
-        cancel.clone(),
+        cancel_handle.clone(),
     ));
     let mut ticker = monoio::time::interval(Duration::from_millis(1000 / frequency));
 
@@ -72,7 +71,7 @@ pub async fn start_sender(
         let buf = buffers[index];
 
         tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
-        let (res, _) = socket.cancelable_send(buf, cancel.clone()).await;
+        let (res, _) = socket.cancelable_send(buf, cancel_handle.clone()).await;
         if let Err(e) = res {
             tracing::debug!("failed to send {}", e);
             continue;

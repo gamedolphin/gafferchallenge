@@ -54,7 +54,7 @@ pub fn watch_shutdown(cancel: Arc<AtomicBool>) -> CancelHandle {
             ticker.tick().await;
             let ended = cancel.load(Ordering::SeqCst);
             if ended {
-                tracing::info!("sending shutdown signal, cancel op");
+                tracing::debug!("sending shutdown signal, cancel op");
                 canceller.cancel();
                 return;
             }
