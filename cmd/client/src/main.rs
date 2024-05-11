@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use monoio::IoUringDriver;
 
 // use rand::distributions::Alphanumeric;
 // use rand::{thread_rng, Rng};
@@ -19,6 +20,9 @@ struct Args {
 
     #[arg(short, long)]
     client_count: u64,
+
+    #[arg(short, long)]
+    thread_count: u64,
 }
 
 // const fn generate_data() -> [[u8; 100]; 100] {
@@ -78,8 +82,7 @@ static BUFFER4: [u8; 100] = [
 ];
 static BUFFERS: [&[u8; 100]; 4] = [&BUFFER1, &BUFFER2, &BUFFER3, &BUFFER4];
 
-#[monoio::main(timer_enabled = true, entries = 4294967295, worker_threads = 12)]
-async fn main() {
+fn main() {
     let args = Args::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::new();
@@ -99,7 +102,7 @@ async fn main() {
     .parse()
     .expect("failed to parse local address");
 
-    let (join_handle, cancel, cancel_tag) = shutdown::setup_monoio_shutdown();
+    let cancel_tag = shutdown::setup_monoio_shutdown();
 
     // let buffers = (0..100)
     //     .map(|_| {
@@ -116,53 +119,93 @@ async fn main() {
         args.frequency
     );
 
-    let client_count = args.client_count;
     let sent_counter = Arc::new(AtomicU64::new(0));
     let recv_counter = Arc::new(AtomicU64::new(0));
+    let frequency = args.frequency;
 
-    let joins = (0..client_count)
-        .map(|_| {
-            let client_cancel = cancel.clone();
-            let counter_clone = sent_counter.clone();
-            let recv_counter_clone = recv_counter.clone();
-            let cancel_chan = cancel_tag.clone();
-            monoio::spawn(async move {
-                sender::start_sender(
-                    local_addr,
-                    server_addr,
-                    args.frequency,
-                    &BUFFERS,
-                    counter_clone,
-                    client_cancel,
-                    cancel_chan,
-                    recv_counter_clone,
-                )
-                .await
+    let sent_counter_clone = sent_counter.clone();
+    let recv_counter_clone = recv_counter.clone();
+    let cancel_tag_clone = cancel_tag.clone();
+
+    let count_per_thread = args.client_count / args.thread_count;
+
+    let threads = (0..args.thread_count)
+        .map(move |_| {
+            let sent_counter_clone = sent_counter_clone.clone();
+            let recv_counter_clone = recv_counter_clone.clone();
+            let cancel_tag_clone = cancel_tag_clone.clone();
+
+            std::thread::spawn(move || {
+                let sent_counter_clone = sent_counter_clone.clone();
+                let recv_counter_clone = recv_counter_clone.clone();
+                let cancel_tag_clone = cancel_tag_clone.clone();
+                let mut rt = monoio::RuntimeBuilder::<IoUringDriver>::new()
+                    .with_entries(32768)
+                    .enable_timer()
+                    .build()
+                    .expect("failed to create runtime!");
+
+                rt.block_on(async move {
+                    let joins = (0..count_per_thread)
+                        .map(move |_| {
+                            let counter_clone = sent_counter_clone.clone();
+                            let recv_counter_clone = recv_counter_clone.clone();
+                            let cancel_chan = cancel_tag_clone.clone();
+                            monoio::spawn(async move {
+                                sender::start_sender(
+                                    local_addr,
+                                    server_addr,
+                                    frequency,
+                                    &BUFFERS,
+                                    counter_clone,
+                                    recv_counter_clone,
+                                    cancel_chan,
+                                )
+                                .await
+                            })
+                        })
+                        .collect::<Vec<monoio::task::JoinHandle<anyhow::Result<()>>>>();
+
+                    for join in joins {
+                        join.await?
+                    }
+
+                    Ok(())
+                })
             })
         })
-        .collect::<Vec<monoio::task::JoinHandle<anyhow::Result<()>>>>();
+        .collect::<Vec<std::thread::JoinHandle<anyhow::Result<()>>>>();
 
-    loop {
-        monoio::time::sleep(Duration::from_secs(1)).await;
-        let sent_count = sent_counter.swap(0, Ordering::Relaxed);
-        let recv_count = recv_counter.swap(0, Ordering::Relaxed);
-        // 100 bytes sent, 64 bytes returned
-        let total_mb = (sent_count * 100 + recv_count * 64) / (1024 * 1024);
-        tracing::info!(
-            "sent {}, received: {}, total bandwidth: {} mbs/s",
-            sent_count,
-            recv_count,
-            total_mb
-        );
+    let mut rt = monoio::RuntimeBuilder::<IoUringDriver>::new()
+        .with_entries(32768)
+        .enable_timer()
+        .build()
+        .expect("failed to create runtime!");
 
-        if cancel_tag.load(Ordering::SeqCst) {
-            break;
+    rt.block_on(async move {
+        let mut ticker = monoio::time::interval(Duration::from_secs(1));
+        loop {
+            ticker.tick().await;
+            let sent_count = sent_counter.swap(0, Ordering::Relaxed);
+            let recv_count = recv_counter.swap(0, Ordering::Relaxed);
+            // 100 bytes sent, 64 bytes returned
+            let total_mb = (sent_count * 100 + recv_count * 64) / (1024 * 1024);
+            tracing::info!(
+                "sent {}, received: {}, total bandwidth: {} mbs/s",
+                sent_count,
+                recv_count,
+                total_mb
+            );
+
+            if cancel_tag.load(Ordering::SeqCst) {
+                break;
+            }
         }
-    }
+    });
 
-    join_handle.await;
-
-    for join in joins {
-        join.await.expect("failed to join all threads");
+    for task in threads {
+        task.join()
+            .expect("failed to join all threads")
+            .expect("error from joined thread");
     }
 }

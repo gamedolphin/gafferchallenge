@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let (join_handle, cancel, cancel_channel) = shutdown::setup_monoio_shutdown();
+    let cancel = shutdown::setup_monoio_shutdown();
 
     let local_server_addr: SocketAddr = format!("0.0.0.0:{}", args.server_port).parse()?;
     let server_cancel = cancel.clone();
@@ -67,14 +67,12 @@ async fn main() -> anyhow::Result<()> {
 
     let server_send_counter1 = sent_counter.clone();
     let server_recv_counter1 = recv_counter.clone();
-    let server_cancel_channel = cancel_channel.clone();
     let server_thread = monoio::spawn(async move {
         forwarder::start_forwarder(
             local_server_addr,
             server_send_counter1,
             server_recv_counter1,
             server_cancel,
-            server_cancel_channel,
         )
         .await
     });
@@ -82,14 +80,12 @@ async fn main() -> anyhow::Result<()> {
     let server_cancel2 = cancel.clone();
     let server_send_counter2 = sent_counter.clone();
     let server_recv_counter2 = recv_counter.clone();
-    let server_cancel_channel2 = cancel_channel.clone();
     let server_thread2 = monoio::spawn(async move {
         forwarder::start_forwarder(
             local_server_addr,
             server_send_counter2,
             server_recv_counter2,
             server_cancel2,
-            server_cancel_channel2,
         )
         .await
     });
@@ -101,7 +97,6 @@ async fn main() -> anyhow::Result<()> {
 
     let sent_count1 = sent_count.clone();
     let recv_count1 = recv_count.clone();
-    let client_cancel_tag1 = cancel_channel.clone();
     let client_thread = monoio::spawn(async move {
         sender::start_sender(
             local_addr,
@@ -109,9 +104,8 @@ async fn main() -> anyhow::Result<()> {
             args.frequency,
             &BUFFERS,
             sent_count1,
-            client_cancel,
-            client_cancel_tag1,
             recv_count1,
+            client_cancel,
         )
         .await
     });
@@ -119,7 +113,6 @@ async fn main() -> anyhow::Result<()> {
     let client_cancel2 = cancel.clone();
     let sent_count2 = sent_count.clone();
     let recv_count2 = recv_count.clone();
-    let client_cancel_tag2 = cancel_channel.clone();
     let client_thread2 = monoio::spawn(async move {
         sender::start_sender(
             local_addr,
@@ -127,16 +120,14 @@ async fn main() -> anyhow::Result<()> {
             args.frequency,
             &BUFFERS,
             sent_count2,
-            client_cancel2,
-            client_cancel_tag2,
             recv_count2,
+            client_cancel2,
         )
         .await
     });
 
     tracing::info!("started everything!");
 
-    join_handle.await;
     client_thread
         .await
         .context("failed to shutdown client 1 thread ")?;

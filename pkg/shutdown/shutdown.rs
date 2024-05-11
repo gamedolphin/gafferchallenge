@@ -30,9 +30,7 @@ pub fn setup_shutdown() -> (JoinHandle<()>, CancellationToken) {
     (join_handle, cancel)
 }
 
-pub fn setup_monoio_shutdown() -> (monoio::task::JoinHandle<()>, CancelHandle, Arc<AtomicBool>) {
-    let canceller = Canceller::new();
-    let cancel_handle = canceller.handle();
+pub fn setup_monoio_shutdown() -> Arc<AtomicBool> {
     let ended = Arc::new(AtomicBool::new(false));
 
     let handler_clone = ended.clone();
@@ -42,11 +40,19 @@ pub fn setup_monoio_shutdown() -> (monoio::task::JoinHandle<()>, CancelHandle, A
     })
     .expect("Error setting Ctrl-C handler");
 
-    let ended_clone = ended.clone();
-    let join_handle = monoio::spawn(async move {
+    ended
+}
+
+pub fn watch_shutdown(cancel: Arc<AtomicBool>) -> CancelHandle {
+    let canceller = Canceller::new();
+    let mut ticker = monoio::time::interval(Duration::from_millis(500));
+
+    let handle = canceller.handle();
+
+    monoio::spawn(async move {
         loop {
-            monoio::time::sleep(Duration::from_millis(500)).await;
-            let ended = ended.load(Ordering::SeqCst);
+            ticker.tick().await;
+            let ended = cancel.load(Ordering::SeqCst);
             if ended {
                 tracing::info!("sending shutdown signal, cancel op");
                 canceller.cancel();
@@ -55,5 +61,5 @@ pub fn setup_monoio_shutdown() -> (monoio::task::JoinHandle<()>, CancelHandle, A
         }
     });
 
-    (join_handle, cancel_handle, ended_clone)
+    handle
 }

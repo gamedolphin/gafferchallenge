@@ -7,7 +7,6 @@ use std::{
 };
 
 use fnv::FnvHasher;
-use monoio::io::CancelHandle;
 use monoio::net::udp::UdpSocket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::hash::Hasher;
@@ -16,7 +15,6 @@ pub async fn start_forwarder(
     local_addr: SocketAddr,
     sent_counter: Arc<AtomicU64>,
     recv_counter: Arc<AtomicU64>,
-    canceller: CancelHandle,
     cancel_tag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
@@ -33,6 +31,8 @@ pub async fn start_forwarder(
 
     tracing::info!("Server listening on : {}", socket.local_addr()?);
 
+    let cancel = shutdown::watch_shutdown(cancel_tag.clone());
+
     let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut res;
 
@@ -43,7 +43,7 @@ pub async fn start_forwarder(
             break Ok(());
         }
 
-        (res, buf) = socket.cancelable_recv_from(buf, canceller.clone()).await;
+        (res, buf) = socket.cancelable_recv_from(buf, cancel.clone()).await;
 
         let (n, host) = match res {
             Ok(n) => n,
@@ -57,7 +57,7 @@ pub async fn start_forwarder(
         let hash_bytes = Box::new(hash.to_le_bytes());
 
         let (res, _) = socket
-            .cancelable_send_to(hash_bytes, host, canceller.clone())
+            .cancelable_send_to(hash_bytes, host, cancel.clone())
             .await;
         if let Err(e) = res {
             tracing::error!("failed to return received packet: {}", e);

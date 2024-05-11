@@ -14,3 +14,4 @@ tokio-util.workspace = true
 socket2.workspace = true
 monoio.workspace = true
 crossbeam.workspace = true
+shutdown.workspace = true
