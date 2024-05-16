@@ -47,12 +47,15 @@ fn main() {
     let recv_counter_clone = recv_counter.clone();
     let cancel_tag_clone = cancel_tag.clone();
 
+    let core_count = std::thread::available_parallelism().unwrap().get();
+
     let joins = (0..args.thread_count)
-        .map(move |_| {
+        .map(move |index| {
             let counter_clone = sent_counter_clone.clone();
             let recv_counter_clone = recv_counter_clone.clone();
             let cancel_tag_clone = cancel_tag_clone.clone();
             std::thread::spawn(move || {
+                monoio::utils::bind_to_cpu_set(Some(index as usize % core_count));
                 let counter_clone = counter_clone.clone();
                 let recv_counter_clone = recv_counter_clone.clone();
                 let mut rt = monoio::RuntimeBuilder::<IoUringDriver>::new()

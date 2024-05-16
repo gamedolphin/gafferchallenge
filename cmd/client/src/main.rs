@@ -129,13 +129,17 @@ fn main() {
 
     let count_per_thread = args.client_count / args.thread_count;
 
+    let core_count = std::thread::available_parallelism().unwrap().get();
+
     let threads = (0..args.thread_count)
-        .map(move |_| {
+        .map(move |index| {
             let sent_counter_clone = sent_counter_clone.clone();
             let recv_counter_clone = recv_counter_clone.clone();
             let cancel_tag_clone = cancel_tag_clone.clone();
 
             std::thread::spawn(move || {
+                monoio::utils::bind_to_cpu_set(Some(index as usize % core_count));
+
                 let sent_counter_clone = sent_counter_clone.clone();
                 let recv_counter_clone = recv_counter_clone.clone();
                 let cancel_tag_clone = cancel_tag_clone.clone();
