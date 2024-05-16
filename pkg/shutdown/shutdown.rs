@@ -1,12 +1,8 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
-use monoio::io::{CancelHandle, Canceller};
 use tokio::{signal, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -41,25 +37,4 @@ pub fn setup_monoio_shutdown() -> Arc<AtomicBool> {
     .expect("Error setting Ctrl-C handler");
 
     ended
-}
-
-pub fn watch_shutdown(cancel: Arc<AtomicBool>) -> CancelHandle {
-    let canceller = Canceller::new();
-    let mut ticker = monoio::time::interval(Duration::from_millis(500));
-
-    let handle = canceller.handle();
-
-    monoio::spawn(async move {
-        loop {
-            ticker.tick().await;
-            let ended = cancel.load(Ordering::SeqCst);
-            if ended {
-                tracing::debug!("sending shutdown signal, cancel op");
-                canceller.cancel();
-                return;
-            }
-        }
-    });
-
-    handle
 }

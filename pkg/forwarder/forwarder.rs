@@ -7,7 +7,7 @@ use std::{
 };
 
 use fnv::FnvHasher;
-use monoio::{io::CancelHandle, net::udp::UdpSocket};
+use monoio::net::udp::UdpSocket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::hash::Hasher;
 
@@ -16,13 +16,12 @@ pub async fn start_forwarder(
     sent_counter: Arc<AtomicU64>,
     recv_counter: Arc<AtomicU64>,
     cancel_tag: Arc<AtomicBool>,
-    cancel_handle: CancelHandle,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;
-    socket.set_recv_buffer_size(12582912)?;
-    socket.set_send_buffer_size(12582912)?;
+    socket.set_recv_buffer_size(1024 * 1024 * 1024)?;
+    socket.set_send_buffer_size(1024 * 1024 * 1024)?;
     socket.bind(&local_addr.into())?;
 
     let socket = UdpSocket::from_std(socket.into())?;
@@ -38,17 +37,15 @@ pub async fn start_forwarder(
     // let mut backend_response = [0_u8; 1024];
 
     loop {
-        if cancel_tag.load(Ordering::SeqCst) {
-            break Ok(());
+        if cancel_tag.load(Ordering::Relaxed) {
+            break;
         }
 
-        (res, buf) = socket
-            .cancelable_recv_from(buf, cancel_handle.clone())
-            .await;
+        (res, buf) = socket.recv_from(buf).await;
 
         let (n, host) = match res {
             Ok(n) => n,
-            Err(e) => break Err(e.into()),
+            Err(e) => return Err(e.into()),
         };
 
         recv_counter.fetch_add(1, Ordering::Relaxed);
@@ -57,14 +54,14 @@ pub async fn start_forwarder(
         let hash = hash_incoming(&buf[0..n]);
         let hash_bytes = Box::new(hash.to_le_bytes());
 
-        let (res, _) = socket
-            .cancelable_send_to(hash_bytes, host, cancel_handle.clone())
-            .await;
+        let (res, _) = socket.send_to(hash_bytes, host).await;
         if let Err(e) = res {
             tracing::error!("failed to return received packet: {}", e);
             continue;
         }
     }
+
+    Ok(())
 }
 
 fn hash_incoming(body: &[u8]) -> u64 {

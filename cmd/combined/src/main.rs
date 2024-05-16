@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
-use monoio::io::Canceller;
+
 // use rand::distributions::Alphanumeric;
 // use rand::{thread_rng, Rng};
 
@@ -65,19 +65,15 @@ async fn main() -> anyhow::Result<()> {
 
     let sent_counter = Arc::new(AtomicU64::new(0));
     let recv_counter = Arc::new(AtomicU64::new(0));
-    let canceller = Canceller::new();
-    let cancel_handle = canceller.handle();
 
     let server_send_counter1 = sent_counter.clone();
     let server_recv_counter1 = recv_counter.clone();
-    let cancel_handle_clone = cancel_handle.clone();
     let server_thread = monoio::spawn(async move {
         forwarder::start_forwarder(
             local_server_addr,
             server_send_counter1,
             server_recv_counter1,
             server_cancel,
-            cancel_handle_clone,
         )
         .await
     });
@@ -85,14 +81,12 @@ async fn main() -> anyhow::Result<()> {
     let server_cancel2 = cancel.clone();
     let server_send_counter2 = sent_counter.clone();
     let server_recv_counter2 = recv_counter.clone();
-    let cancel_handle_clone = cancel_handle.clone();
     let server_thread2 = monoio::spawn(async move {
         forwarder::start_forwarder(
             local_server_addr,
             server_send_counter2,
             server_recv_counter2,
             server_cancel2,
-            cancel_handle_clone,
         )
         .await
     });
@@ -104,7 +98,6 @@ async fn main() -> anyhow::Result<()> {
 
     let sent_count1 = sent_count.clone();
     let recv_count1 = recv_count.clone();
-    let cancel_handle_clone = cancel_handle.clone();
     let client_thread = monoio::spawn(async move {
         sender::start_sender(
             local_addr,
@@ -114,7 +107,6 @@ async fn main() -> anyhow::Result<()> {
             sent_count1,
             recv_count1,
             client_cancel,
-            cancel_handle_clone,
         )
         .await
     });
@@ -122,7 +114,6 @@ async fn main() -> anyhow::Result<()> {
     let client_cancel2 = cancel.clone();
     let sent_count2 = sent_count.clone();
     let recv_count2 = recv_count.clone();
-    let cancel_handle_clone = cancel_handle.clone();
     let client_thread2 = monoio::spawn(async move {
         sender::start_sender(
             local_addr,
@@ -132,7 +123,6 @@ async fn main() -> anyhow::Result<()> {
             sent_count2,
             recv_count2,
             client_cancel2,
-            cancel_handle_clone,
         )
         .await
     });

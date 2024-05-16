@@ -55,27 +55,22 @@ fn main() {
             std::thread::spawn(move || {
                 let counter_clone = counter_clone.clone();
                 let recv_counter_clone = recv_counter_clone.clone();
-                let cancel_tag_clone = cancel_tag_clone.clone();
                 let mut rt = monoio::RuntimeBuilder::<IoUringDriver>::new()
                     .with_entries(32768)
-                    .enable_timer()
                     .build()
                     .expect("failed to create runtime!");
                 rt.block_on(async move {
-                    let canceller = shutdown::watch_shutdown(cancel_tag_clone.clone());
                     let joins = (0..count_per_thread)
                         .map(move |_| {
                             let counter_clone = counter_clone.clone();
                             let recv_counter_clone = recv_counter_clone.clone();
                             let cancel_tag_clone = cancel_tag_clone.clone();
-                            let canceller = canceller.clone();
                             monoio::spawn(async move {
                                 forwarder::start_forwarder(
                                     local_addr,
                                     counter_clone,
                                     recv_counter_clone,
                                     cancel_tag_clone,
-                                    canceller,
                                 )
                                 .await
                             })
@@ -106,7 +101,7 @@ fn main() {
             let recv_count = recv_counter.swap(0, Ordering::Relaxed);
             tracing::info!("sent {}, received: {}", sent_count, recv_count);
 
-            if cancel_tag.load(Ordering::SeqCst) {
+            if cancel_tag.load(Ordering::Relaxed) {
                 break;
             }
         }

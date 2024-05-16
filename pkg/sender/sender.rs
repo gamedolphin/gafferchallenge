@@ -1,4 +1,3 @@
-use monoio::io::CancelHandle;
 use monoio::net::udp::UdpSocket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::{
@@ -18,13 +17,12 @@ pub async fn start_sender(
     sent_counter: Arc<AtomicU64>,
     recv_counter: Arc<AtomicU64>,
     cancel_bool: Arc<AtomicBool>,
-    cancel_handle: CancelHandle,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;
-    socket.set_recv_buffer_size(12582912)?;
-    socket.set_send_buffer_size(12582912)?;
+    socket.set_recv_buffer_size(256 * 1024 * 1024)?;
+    socket.set_send_buffer_size(256 * 1024 * 1024)?;
     socket.bind(&local_addr.into())?;
 
     let socket = UdpSocket::from_std(socket.into())?;
@@ -53,7 +51,6 @@ pub async fn start_sender(
         recv_addr,
         recv_counter,
         cancel_bool.clone(),
-        cancel_handle.clone(),
     ));
     let mut ticker = monoio::time::interval(Duration::from_millis(1000 / frequency));
 
@@ -71,7 +68,7 @@ pub async fn start_sender(
         let buf = buffers[index];
 
         tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
-        let (res, _) = socket.cancelable_send(buf, cancel_handle.clone()).await;
+        let (res, _) = socket.send(buf).await;
         if let Err(e) = res {
             tracing::debug!("failed to send {}", e);
             continue;
@@ -89,7 +86,6 @@ async fn recv_another_thread(
     local_addr: SocketAddr,
     recv_counter: Arc<AtomicU64>,
     cancel_tag: Arc<AtomicBool>,
-    canceller: CancelHandle,
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_nonblocking(true)?;
@@ -107,7 +103,7 @@ async fn recv_another_thread(
             break;
         }
 
-        (res, buf) = socket.cancelable_recv(buf, canceller.clone()).await;
+        (res, buf) = socket.recv(buf).await;
 
         let Ok(n) = res else {
             break;

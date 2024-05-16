@@ -146,13 +146,11 @@ fn main() {
                     .expect("failed to create runtime!");
 
                 rt.block_on(async move {
-                    let canceller = shutdown::watch_shutdown(cancel_tag_clone.clone());
                     let joins = (0..count_per_thread)
                         .map(move |_| {
                             let counter_clone = sent_counter_clone.clone();
                             let recv_counter_clone = recv_counter_clone.clone();
                             let cancel_chan = cancel_tag_clone.clone();
-                            let canceller = canceller.clone();
                             monoio::spawn(async move {
                                 sender::start_sender(
                                     local_addr,
@@ -162,7 +160,6 @@ fn main() {
                                     counter_clone,
                                     recv_counter_clone,
                                     cancel_chan,
-                                    canceller,
                                 )
                                 .await
                             })
