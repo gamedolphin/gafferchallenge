@@ -67,10 +67,10 @@ pub async fn start_sender(
 
         let buf = buffers[index];
 
-        tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
+        // tracing::debug!("sending {}", std::str::from_utf8(buf).unwrap());
         let (res, _) = socket.send(buf).await;
         if let Err(e) = res {
-            tracing::debug!("failed to send {}", e);
+            // tracing::debug!("failed to send {}", e);
             continue;
         }
 
@@ -111,12 +111,10 @@ async fn recv_another_thread(
 
         recv_counter.fetch_add(1, Ordering::Relaxed);
 
-        tracing::debug!(
-            "received hash: {}",
-            std::str::from_utf8(&buf[0..n]).unwrap()
-        );
-
-        buf.clear();
+        // tracing::debug!(
+        //     "received hash: {}",
+        //     std::str::from_utf8(&buf[0..n]).unwrap()
+        // );
     }
 
     tracing::debug!("shutting down sender");

@@ -49,7 +49,6 @@ pub async fn start_forwarder(
         };
 
         recv_counter.fetch_add(1, Ordering::Relaxed);
-        sent_counter.fetch_add(1, Ordering::Relaxed);
 
         let hash = hash_incoming(&buf[0..n]);
         let hash_bytes = Box::new(hash.to_le_bytes());
@@ -59,6 +58,8 @@ pub async fn start_forwarder(
             tracing::error!("failed to return received packet: {}", e);
             continue;
         }
+
+        sent_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     Ok(())

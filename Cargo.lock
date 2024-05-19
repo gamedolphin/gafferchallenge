@@ -209,6 +209,7 @@ dependencies = [
  "rand",
  "sender",
  "shutdown",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -406,6 +407,20 @@ name = "libc"
 version = "0.2.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+
+[[package]]
+name = "listener"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fnv",
+ "monoio",
+ "shutdown",
+ "socket2",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
 
 [[package]]
 name = "lock_api"
@@ -883,6 +898,37 @@ name = "valuable"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+
+[[package]]
+name = "video"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "monoio",
+ "rand",
+ "sender",
+ "shutdown",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "video_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fnv",
+ "monoio",
+ "rand",
+ "sender",
+ "shutdown",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "wasi"

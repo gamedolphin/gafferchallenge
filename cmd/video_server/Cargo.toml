@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "video_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -17,3 +17,4 @@ rand = "0.8.5"
 
 sender.workspace = true
 shutdown.workspace = true
+fnv = "1.0.7"

@@ -213,3 +213,66 @@ fn main() {
             .expect("error from joined thread");
     }
 }
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct ClientArgs {
+    #[arg(short, long)]
+    server_addr: String,
+
+    #[arg(short, long)]
+    frequency: u64,
+
+    #[arg(short, long)]
+    client_count: u64,
+}
+
+pub async fn start_many_clients() -> anyhow::Result<()> {
+    let args = ClientArgs::parse();
+
+    let count = args.client_count;
+    let frequency = args.frequency;
+    let server_addr = args.server_addr.parse()?;
+
+    let sent_counter = Arc::new(AtomicU64::new(0));
+    let recv_counter = Arc::new(AtomicU64::new(0));
+
+    let threads = (0..count)
+        .map(|_| {
+            let sent_counter = sent_counter.clone();
+            let recv_counter = recv_counter.clone();
+            tokio::spawn(async move {
+                start_client(frequency, server_addr, sent_counter, recv_counter).await
+            })
+        })
+        .collect::<Vec<JoinHandle<()>>>();
+
+    Ok(())
+}
+
+pub async fn start_client(
+    frequency: u64,
+    server_addr: SocketAddr,
+    sent_count: Arc<AtomicU64>,
+    recv_count: Arc<AtomicU64>,
+) -> anyhow::Result<()> {
+    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1), 0);
+    let sender = tokio::net::UdpSocket::bind(local_addr).await?;
+
+    let mut interval = tokio::time::interval(Duration::from_millis(1000 / frequency));
+
+    let mut buf = Vec::with_capacity(100);
+
+    loop {
+        tokio::select! {
+            _ = interval.tick().await => {
+                sender.send_to(BUFFER1.into(), server_addr).await?;
+                sent_count.fetch_add(1, Ordering::Relaxed);
+            }
+
+            _ = sender.recv_from(&mut buf) => {
+                recv_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
