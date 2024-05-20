@@ -409,20 +409,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
-name = "listener"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fnv",
- "monoio",
- "shutdown",
- "socket2",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -909,6 +895,7 @@ dependencies = [
  "rand",
  "sender",
  "shutdown",
+ "socket2",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -925,6 +912,7 @@ dependencies = [
  "rand",
  "sender",
  "shutdown",
+ "socket2",
  "tokio",
  "tracing",
  "tracing-subscriber",

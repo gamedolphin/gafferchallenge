@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use socket2::{Domain, Protocol, Socket, Type};
 use tokio::task::JoinHandle;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -80,7 +81,16 @@ pub async fn start_client(
     recv_count: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 0);
-    let sender = tokio::net::UdpSocket::bind(local_addr).await?;
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_port(true)?;
+
+    socket.set_recv_buffer_size(1024 * 1024 * 1024);
+    socket.set_send_buffer_size(1024 * 1024 * 1024);
+
+    socket.bind(&local_addr.into())?;
+
+    let sender = tokio::net::UdpSocket::from_std(socket.into())?;
 
     let mut interval = tokio::time::interval(Duration::from_millis(1000 / frequency));
 
