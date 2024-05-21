@@ -159,7 +159,7 @@ pub async fn start_client(
     sent_count: Arc<AtomicU64>,
     recv_count: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
-    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 0);
+    let local_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0);
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     // socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;

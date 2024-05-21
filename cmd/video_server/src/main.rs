@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let port = args.port;
-    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port);
+    let local_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), port);
 
     let core_count: usize = std::thread::available_parallelism()?.into();
     let count_per_thread = args.server_count / args.thread_count;
