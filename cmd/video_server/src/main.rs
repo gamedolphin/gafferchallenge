@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let port = args.port;
-    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port);
+    let local_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), port);
 
     let threads = (0..args.server_count)
         .map(|_| tokio::spawn(async move { start_listener(local_addr).await }))
