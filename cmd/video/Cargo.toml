@@ -13,8 +13,4 @@ tracing-subscriber.workspace = true
 monoio.workspace = true
 tokio.workspace = true
 socket2.workspace = true
-
-rand = "0.8.5"
-
-sender.workspace = true
-shutdown.workspace = true
+tikv-jemallocator.workspace = true
