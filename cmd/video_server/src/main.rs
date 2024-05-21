@@ -114,7 +114,6 @@ pub async fn start_listener(
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     // socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;
-    socket.set_cpu_affinity(current_core)?;
 
     socket.set_recv_buffer_size(1024 * 1024 * 1024)?;
     socket.set_send_buffer_size(1024 * 1024 * 1024)?;
@@ -125,11 +124,11 @@ pub async fn start_listener(
 
     tracing::info!("Server listening on : {}", listener.local_addr()?);
 
-    let mut buf = Vec::with_capacity(100);
+    let mut buf = Vec::with_capacity(8 * 1024);
     let mut res;
 
-    let mut out_buf = Vec::with_capacity(8);
-    let mut out_res;
+    // let mut out_buf = Vec::with_capacity(8);
+    // let mut out_res;
 
     loop {
         (res, buf) = listener.recv_from(buf).await;
@@ -142,11 +141,8 @@ pub async fn start_listener(
         recv_count.fetch_add(1, Ordering::Relaxed);
 
         let hashed = hash_incoming(&buf[0..size]);
-        out_buf
-            .write_all(&hashed.to_le_bytes())
-            .expect("failed to write into vec");
 
-        (out_res, out_buf) = listener.send_to(out_buf, from).await;
+        let (out_res, _) = listener.send_to(Box::new(hashed.to_le_bytes()), from).await;
 
         if let Err(e) = out_res {
             tracing::error!("failed to respond: {e}");
@@ -154,8 +150,6 @@ pub async fn start_listener(
         }
 
         send_count.fetch_add(1, Ordering::Relaxed);
-
-        out_buf.clear();
     }
 }
 
