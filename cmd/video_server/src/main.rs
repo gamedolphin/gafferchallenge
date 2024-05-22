@@ -128,16 +128,28 @@ pub async fn start_listener(
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     // socket.set_nonblocking(true)?;
-    socket.set_reuse_port(true)?;
+    socket
+        .set_reuse_port(true)
+        .expect("failed to set reuse port");
 
-    socket.set_recv_buffer_size(1024 * 1024 * 1024)?;
-    socket.set_send_buffer_size(1024 * 1024 * 1024)?;
+    socket
+        .set_recv_buffer_size(1024 * 1024 * 1024)
+        .expect("failed to set recv buffer size");
+    socket
+        .set_send_buffer_size(1024 * 1024 * 1024)
+        .expect("failed to set send buffer size");
 
-    socket.bind(&local_addr.into())?;
+    socket
+        .bind(&local_addr.into())
+        .expect("failed to bind local addr");
 
-    let listener = monoio::net::udp::UdpSocket::from_std(socket.into())?;
+    let listener = monoio::net::udp::UdpSocket::from_std(socket.into())
+        .expect("failed to create monoio socket");
 
-    listener.connect(remote_addr).await?;
+    listener
+        .connect(remote_addr)
+        .await
+        .expect("failed to connect to remote addr");
 
     // tracing::info!("Server listening on : {}", listener.local_addr()?);
 
