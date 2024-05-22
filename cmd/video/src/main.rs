@@ -32,6 +32,9 @@ struct Args {
 
     #[arg(short, long)]
     thread_count: usize,
+
+    #[arg(short, long)]
+    port_start: usize,
 }
 
 pub async fn start_many_clients() -> anyhow::Result<()> {
@@ -62,10 +65,14 @@ fn main() -> anyhow::Result<()> {
     let core_count: usize = std::thread::available_parallelism()?.into();
     let count_per_thread = count / args.thread_count;
 
+    let port_start = args.port_start;
+
     let threads = (0..args.thread_count)
         .map(|index| {
             let sent_counter = sent_counter.clone();
             let recv_counter = recv_counter.clone();
+            let port_start = port_start + count_per_thread * index;
+            let local_ip = Ipv4Addr::new(0, 0, 0, 0).into();
             std::thread::spawn(move || {
                 let current_core = index % core_count;
                 monoio::utils::bind_to_cpu_set(Some(current_core)).expect("failed to bind to cpu");
@@ -77,12 +84,24 @@ fn main() -> anyhow::Result<()> {
 
                 rt.block_on(async move {
                     let joins = (0..count_per_thread)
-                        .map(move |_| {
+                        .map(move |index| {
                             let sent_counter = sent_counter.clone();
                             let recv_counter = recv_counter.clone();
+                            let local_addr = SocketAddr::new(
+                                local_ip,
+                                (port_start + index)
+                                    .try_into()
+                                    .expect("unexpectedly large port "),
+                            );
                             monoio::spawn(async move {
-                                start_client(frequency, server_addr, sent_counter, recv_counter)
-                                    .await
+                                start_client(
+                                    frequency,
+                                    local_addr,
+                                    server_addr,
+                                    sent_counter,
+                                    recv_counter,
+                                )
+                                .await
                             })
                         })
                         .collect::<Vec<monoio::task::JoinHandle<anyhow::Result<()>>>>();
@@ -135,7 +154,10 @@ pub async fn start_receiver(
     socket.set_recv_buffer_size(1024 * 1024 * 1024)?;
     socket.set_send_buffer_size(1024 * 1024 * 1024)?;
 
-    socket.bind(&local_addr.into())?;
+    if let Err(e) = socket.bind(&local_addr.into()) {
+        tracing::info!("failed to bind socket to {local_addr} : {e}");
+        return Err(e.into());
+    };
 
     let recv = monoio::net::udp::UdpSocket::from_std(socket.into())?;
     recv.connect(server_addr).await?;
@@ -155,11 +177,11 @@ pub async fn start_receiver(
 
 pub async fn start_client(
     frequency: u64,
+    local_addr: SocketAddr,
     server_addr: SocketAddr,
     sent_count: Arc<AtomicU64>,
     recv_count: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
-    let local_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0);
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     // socket.set_nonblocking(true)?;
     socket.set_reuse_port(true)?;

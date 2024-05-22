@@ -1,10 +1,11 @@
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
 use monoio::IoUringDriver;
+use tokio::task::JoinHandle;
 
 // use rand::distributions::Alphanumeric;
 // use rand::{thread_rng, Rng};
@@ -245,7 +246,7 @@ pub async fn start_many_clients() -> anyhow::Result<()> {
                 start_client(frequency, server_addr, sent_counter, recv_counter).await
             })
         })
-        .collect::<Vec<JoinHandle<()>>>();
+        .collect::<Vec<JoinHandle<anyhow::Result<()>>>>();
 
     Ok(())
 }
@@ -256,7 +257,7 @@ pub async fn start_client(
     sent_count: Arc<AtomicU64>,
     recv_count: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
-    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1), 0);
+    let local_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 0);
     let sender = tokio::net::UdpSocket::bind(local_addr).await?;
 
     let mut interval = tokio::time::interval(Duration::from_millis(1000 / frequency));
@@ -265,8 +266,8 @@ pub async fn start_client(
 
     loop {
         tokio::select! {
-            _ = interval.tick().await => {
-                sender.send_to(BUFFER1.into(), server_addr).await?;
+            _ = interval.tick() => {
+                sender.send_to(&BUFFER1, server_addr).await?;
                 sent_count.fetch_add(1, Ordering::Relaxed);
             }
 

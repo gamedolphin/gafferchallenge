@@ -2,7 +2,6 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use std::{
-    io::Write,
     net::{Ipv4Addr, SocketAddr},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -28,6 +27,12 @@ struct Args {
 
     #[arg(short, long)]
     thread_count: usize,
+
+    #[arg(short, long)]
+    from_ip: Ipv4Addr,
+
+    #[arg(short, long)]
+    port_start: usize,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -45,10 +50,14 @@ fn main() -> anyhow::Result<()> {
     let sent_counter = Arc::new(AtomicU64::new(0));
     let recv_counter = Arc::new(AtomicU64::new(0));
 
+    let recv_ip = args.from_ip;
+    let port_start = args.port_start;
+
     let threads = (0..args.thread_count)
         .map(|index| {
             let sent_counter = sent_counter.clone();
             let recv_counter = recv_counter.clone();
+            let port_start = port_start + count_per_thread * index;
             std::thread::spawn(move || {
                 let current_core = index % core_count;
                 monoio::utils::bind_to_cpu_set(Some(current_core)).expect("failed to bind to cpu");
@@ -59,11 +68,17 @@ fn main() -> anyhow::Result<()> {
 
                 rt.block_on(async move {
                     let joins = (0..count_per_thread)
-                        .map(move |_| {
+                        .map(move |index| {
                             let sent_counter = sent_counter.clone();
                             let recv_counter = recv_counter.clone();
+                            let conn_to = SocketAddr::new(
+                                recv_ip.into(),
+                                (port_start + index)
+                                    .try_into()
+                                    .expect("unexpectedly large port "),
+                            );
                             monoio::spawn(async move {
-                                start_listener(local_addr, current_core, recv_counter, sent_counter)
+                                start_listener(local_addr, conn_to, recv_counter, sent_counter)
                                     .await
                             })
                         })
@@ -107,7 +122,7 @@ fn main() -> anyhow::Result<()> {
 
 pub async fn start_listener(
     local_addr: SocketAddr,
-    current_core: usize,
+    remote_addr: SocketAddr,
     recv_count: Arc<AtomicU64>,
     send_count: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
@@ -122,7 +137,9 @@ pub async fn start_listener(
 
     let listener = monoio::net::udp::UdpSocket::from_std(socket.into())?;
 
-    tracing::info!("Server listening on : {}", listener.local_addr()?);
+    listener.connect(remote_addr).await?;
+
+    // tracing::info!("Server listening on : {}", listener.local_addr()?);
 
     let mut buf = Vec::with_capacity(8 * 1024);
     let mut res;
@@ -131,9 +148,9 @@ pub async fn start_listener(
     // let mut out_res;
 
     loop {
-        (res, buf) = listener.recv_from(buf).await;
+        (res, buf) = listener.recv(buf).await;
 
-        let Ok((size, from)) = res else {
+        let Ok(size) = res else {
             tracing::error!("failed to recv");
             continue;
         };
@@ -142,7 +159,7 @@ pub async fn start_listener(
 
         let hashed = hash_incoming(&buf[0..size]);
 
-        let (out_res, _) = listener.send_to(Box::new(hashed.to_le_bytes()), from).await;
+        let (out_res, _) = listener.send(Box::new(hashed.to_le_bytes())).await;
 
         if let Err(e) = out_res {
             tracing::error!("failed to respond: {e}");
