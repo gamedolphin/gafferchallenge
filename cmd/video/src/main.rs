@@ -192,12 +192,12 @@ pub async fn start_client(
 
     loop {
         interval.tick().await;
-        (0..10).for_each(|_| {
+        for _ in 0..10 {
             let (res, _) = sender.send(&BUFFER1).await;
             if res.is_err() {
                 continue;
             }
-        });
+        }
 
         sent_count.fetch_add(10, Ordering::Relaxed);
     }
