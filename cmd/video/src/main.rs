@@ -32,9 +32,6 @@ struct Args {
 
     #[arg(short, long)]
     thread_count: usize,
-
-    #[arg(short, long)]
-    port_start: usize,
 }
 
 pub async fn start_many_clients() -> anyhow::Result<()> {
@@ -65,13 +62,10 @@ fn main() -> anyhow::Result<()> {
     let core_count: usize = std::thread::available_parallelism()?.into();
     let count_per_thread = count / args.thread_count;
 
-    let port_start = args.port_start;
-
     let threads = (0..args.thread_count)
         .map(|index| {
             let sent_counter = sent_counter.clone();
             let recv_counter = recv_counter.clone();
-            let port_start = port_start + count_per_thread * index;
             let local_ip = Ipv4Addr::new(0, 0, 0, 0).into();
             std::thread::spawn(move || {
                 let current_core = index % core_count;
@@ -87,12 +81,7 @@ fn main() -> anyhow::Result<()> {
                         .map(move |index| {
                             let sent_counter = sent_counter.clone();
                             let recv_counter = recv_counter.clone();
-                            let local_addr = SocketAddr::new(
-                                local_ip,
-                                (port_start + index)
-                                    .try_into()
-                                    .expect("unexpectedly large port "),
-                            );
+                            let local_addr = SocketAddr::new(local_ip, 0).into();
                             monoio::spawn(async move {
                                 start_client(
                                     frequency,
