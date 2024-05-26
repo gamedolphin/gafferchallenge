@@ -91,6 +91,7 @@ pub async fn start_client(
     socket.bind(&local_addr.into())?;
 
     let sender = tokio::net::UdpSocket::from_std(socket.into())?;
+    sender.connect(server_addr).await?;
 
     let mut interval = tokio::time::interval(Duration::from_millis(1000 / frequency));
 
@@ -99,11 +100,13 @@ pub async fn start_client(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                sender.send_to(&BUFFER1, server_addr).await?;
-                sent_count.fetch_add(1, Ordering::Relaxed);
+                for _ in 0..10 {
+                    sender.send(&BUFFER1).await?;
+                }
+                sent_count.fetch_add(10, Ordering::Relaxed);
             },
 
-            _ = sender.recv_from(&mut buf) => {
+            _ = sender.recv(&mut buf) => {
                 recv_count.fetch_add(1, Ordering::Relaxed);
             }
         }
