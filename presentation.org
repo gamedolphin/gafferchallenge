@@ -1,0 +1,444 @@
+#+title:	1 Million UDP Clients!
+#+author:	Sandeep Nambiar
+#+email:	contact@sandeepnambiar.com
+
+* Hi!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+I'm Sandeep!
+- I have a youtube channel!
+- I write multiple languages in a day - C#, Go, C++, Rust?
+- I help make multiplayer games easier at coherence!
+- --
+
+* WHY?
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+Glenn Fiedler (GafferOnGames) posted a challenge on his new website - mas-bandwidth
++ Send 100 bytes of data, 100 times a second
++ Server responds with the fnv hash of the data
++ Have 1 million clients doing this
++ 1 month later, here I am, emerging from my rabbit hole
++ This is not a useful thing.
++ Yet.
++ --
+* Basic Setup
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+** Client
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC rust-ts
+  // main.rs
+  let threads = (0..count)
+      .map(|_| {
+          let sent_counter = sent_counter.clone();
+          let recv_counter = recv_counter.clone();
+              tokio::spawn(async move {
+                  start_client(frequency, server_addr, sent_counter, recv_counter).await
+              })
+          })
+          .collect::<Vec<JoinHandle<anyhow::Result<()>>>>();
+
+      let mut interval = tokio::time::interval(Duration::from_secs(1));
+      loop {
+          interval.tick().await;
+          let sent_count = sent_counter.swap(0, Ordering::Relaxed);
+          let recv_count = recv_counter.swap(0, Ordering::Relaxed);
+          tracing::info!("Sent: {}, Received: {}", sent_count, recv_count);
+      }
+#+END_SRC
+
+
+This is a simple tokio udp client, sending packets at a fixed interval.
+- Take client count from the command line using clap
+- Start tokio green threads.
+- --
+*** Sender
+#+BEGIN_SRC rust-ts
+  let local_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0);
+  let sender = tokio::net::UdpSocket::bind(local_addr)?;
+
+  let mut interval = tokio::time::interval(Duration::from_millis(1000 / frequency));
+
+  let mut buf = Vec::with_capacity(100);
+
+  loop {
+      tokio::select! {
+          _ = interval.tick() => {
+              sender.send_to(&BUFFER1, server_addr).await?;
+              sent_count.fetch_add(1, Ordering::Relaxed);
+          },
+
+          _ = sender.recv_from(&mut buf) => {
+              recv_count.fetch_add(1, Ordering::Relaxed);
+          }
+      }
+  }
+#+END_SRC
+** Server
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC rust-ts
+  // main.rs
+  let listener = tokio::net::UdpSocket::bind(local_addr)?;
+
+  tracing::info!("Server listening on : {}", listener.local_addr()?);
+
+  let mut buf = Vec::with_capacity(100);
+
+  loop {
+      let (size, from) = listener.recv_from(&mut buf).await?;
+
+      let hashed = hash_incoming(&buf[0..size]);
+
+      listener.send_to(&hashed.to_le_bytes(), from).await?;
+  }
+#+END_SRC
+
+The server is simpler!
+- Bind to socket
+- Wait for packet
+- Hash the data
+- Send it back to the same address!
+- --
+** Lets run it!
+#+BEGIN_SRC bash-ts
+  ./builds/tokio/release/video_server --port 32001 --server-count 1
+  ./builds/tokio/release/video --server-addr 0.0.0.0:32001 --frequency 100 --client-count 1000
+#+END_SRC
+
+*** Results
+#+BEGIN_SRC bash-ts
+2024-05-30T11:51:06.330067Z  INFO video: Sent: 96549, Received: 95664
+2024-05-30T11:51:07.330480Z  INFO video: Sent: 100044, Received: 100052
+2024-05-30T11:51:08.330138Z  INFO video: Sent: 100027, Received: 99936
+2024-05-30T11:51:09.330067Z  INFO video: Sent: 99930, Received: 99866
+2024-05-30T11:51:10.330348Z  INFO video: Sent: 99998, Received: 100074
+#+END_SRC
+We see that packets start dropping at about 1000 clients.
+
+* Version 2
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+Some immediate improvements:-
+- Running a single server "green" thread really.
+- Can start multiple servers on different ports.
+- Orchestration is hard!
+- --
+
+** Solution
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC rust-ts
+  let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+  socket.set_nonblocking(true)?;
+  socket.set_reuse_port(true)?;
+
+  socket.bind(&local_addr.into())?;
+
+  let listener = tokio::net::UdpSocket::from_std(socket.into())?;
+#+END_SRC
+
+We start multiple green threads listening on the same port. How?
+
+- !!! SO_REUSEPORT !!!
+- sockets2 crate lets you do this easily
+- --
+
+*** Lets run it!
+#+BEGIN_SRC bash-ts
+  ./builds/tokio/release/video_server --port 32001 --server-count 100
+  ./builds/tokio/release/video --server-addr 0.0.0.0:32001 --frequency 100 --client-count 13000
+#+END_SRC
+
+**** Results
+#+BEGIN_SRC bash-ts
+2024-05-30T12:02:11.079941Z  INFO video: Sent: 1201296, Received: 1203776
+2024-05-30T12:02:12.079918Z  INFO video: Sent: 1199733, Received: 1199164
+2024-05-30T12:02:13.079040Z  INFO video: Sent: 1199641, Received: 1198564
+2024-05-30T12:02:14.079282Z  INFO video: Sent: 1198659, Received: 1199421
+#+END_SRC
+
+12000 clients! Not bad!
+
+** Side Note
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+  ulimit -S -n <high number> // 100000 here
+#+END_SRC
+
+#+BEGIN_SRC bash-ts
+  sysctl -w net.core.rmem_max=262144 // reads
+  sysctl -w net.core.rmem_default=262144
+  sysctl -w net.core.wmem_max=262144 //writes
+  sysctl -w net.core.wmem_default=262144
+#+END_SRC
+
+#+BEGIN_SRC rust-ts
+  socket.set_recv_buffer_size(1024 * 1024 * 1024)?;
+  socket.set_send_buffer_size(1024 * 1024 * 1024)?;
+#+END_SRC
+
+- You need to tweak a few linux settings
+- Increase the max open file descriptors - udp sockets are file descriptors, push the allowed limit!
+- The other is the actual send/receive buffers of the kernel
+- It drops packets otherwise
+- We can set it for sockets as well!
+- --
+* Lets run it on the cloud!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+I have already set this up on bare metal machines on Hetzner.
+- 12 core machines, 24 threads, 64 GB RAM.
+- 10 Gbit line between them, just in case.
+- --
+
+* DEMO
+#+BEGIN_SRC bash-ts
+  ./builds/tokio/release/video_server --port 32001 --server-count 500
+  ./builds/tokio/release/video --server-addr 0.0.0.0:32001 --frequency 100 --client-count 15000
+#+END_SRC
+
+* COST
+#+BEGIN_SRC bash-ts
+2024-05-30T12:19:41.712716Z  INFO video: Sent: 1506482, Received: 1510273
+2024-05-30T12:19:42.712773Z  INFO video: Sent: 1501382, Received: 1502369
+2024-05-30T12:19:43.712822Z  INFO video: Sent: 1500699, Received: 1500584
+#+END_SRC
+
+#+BEGIN_SRC text
+    2 machines each + 1 nic => 108 Euros
+    (1 million clients / 15000 clients) *  108 Euros ~ 7300 Euros/month + egress (OMG!)
+#+END_SRC
+
+* SO WE ARE DONE
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+- 1 million clients, 8000 euros per month.
+- Okay done, lets go home, talk over!
+- --
+
+* THREAD PER CORE?!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC rust-ts
+  let mut interval = monoio::time::interval(Duration::from_millis(1000 / frequency));
+
+  loop {
+      interval.tick().await;
+      let (res, _) = sender.send(&BUFFER1).await;
+      if res.is_err() {
+          continue;
+      }
+
+      sent_count.fetch_add(1, Ordering::Relaxed);
+  }
+#+END_SRC
+
+What if we replaced tokio with monoio - a thread per core io_uring alternative?
+- Similar pattern, but slightly different
+- Start threads, and start runtimes in them
+- Both client and server ported to thread per core
+- --
+** Bind to cores, start runtime
+#+BEGIN_SRC rust-ts
+  monoio::utils::bind_to_cpu_set(Some(current_core)).expect("failed to bind to cpu");
+  let mut rt = monoio::RuntimeBuilder::<IoUringDriver>::new()
+      .with_entries(32768)
+      .build()
+      .expect("failed to start monoio runtime");
+#+END_SRC
+
+*** Lets run it!
+#+BEGIN_SRC bash-ts
+  ./builds/monoio/release/video_server --port 32001 --server-count 240 --thread-count 120
+  ./builds/monoio/release/video --server-addr 0.0.0.0:32001 --frequency 100 --client-count 15000
+#+END_SRC
+
+**** Results
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+2024-05-30T12:28:37.743352Z  INFO video_server: Sent: 1284354, Received: 1284356
+2024-05-30T12:28:38.743446Z  INFO video_server: Sent: 1329822, Received: 1329817
+2024-05-30T12:28:39.742548Z  INFO video_server: Sent: 1325552, Received: 1325554
+2024-05-30T12:28:40.742652Z  INFO video_server: Sent: 1321615, Received: 1321608
+2024-05-30T12:28:41.742703Z  INFO video_server: Sent: 1325286, Received: 1325300
+2024-05-30T12:28:42.742982Z  INFO video_server: Sent: 1275746, Received: 1275728
+#+END_SRC
+
+Its struggling! Kudos tokio!
+- No idea how.
+- Same amount of work on every thread!
+- How is this slower!?
+- --
+
+* ARE WE DONE NOW? NO!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+- No!
+- XDP! game developers have discovered XDP! Run for the hills!
+- --
+
+* XDP
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+- Lets you write EBPF programs that live in the kernel!
+- Bypass the network stack, deal with the packet yourself!
+
+- Why did I do it? Because rust can compile to EBPF!!!!
+- There's always someone in the community doing stuff like this!
+- Nothing can stop me now.
+- --
+
+** XDP SERVER
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC rust-ts
+  fn hash_responder(ctx: XdpContext) -> Result<u32, ()> {
+    let ethhdr_ptr = ptr_at(&ctx, 0)?;
+    let mut ethhdr: EthHdr = unsafe { *ethhdr_ptr };
+    // the rest
+  }
+#+END_SRC
+- used the aya crate to bootstrap
+- it compiles rust to ebpf, and loads it in main, attaching to an interface
+- unsafe lands
+- still better than the C experience
+- --
+
+*** WHAT THE SERVER DOES
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+**** Parsing
+#+BEGIN_SRC rust-ts
+  let ipv4hdr_ptr: *mut Ipv4Hdr = ptr_at(&ctx, EthHdr::LEN)?;
+  let mut ipv4hdr: Ipv4Hdr = unsafe { *ipv4hdr_ptr };
+
+  if ipv4hdr.proto == IpProto::Tcp {
+      info!(&ctx, "tcp packet received, ignored!");
+      return Ok(xdp_action::XDP_PASS); // dont care about tcp packets, let them through
+  }
+
+  let source_addr = u32::from_be(ipv4hdr.src_addr);
+
+  let udphdr_ptr: *mut UdpHdr = ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
+  let mut udphdr: UdpHdr = unsafe { *udphdr_ptr };
+#+END_SRC
+- parses the raw packet
+  + ethernet header
+  + ipv4 header
+  + udp header
+    - early exit on all of them
+- --
+**** Calculates hash
+#+BEGIN_SRC rust-ts
+  let mut hasher = fnv::FnvHasher::default();
+  hasher.write(hasher_data);
+  let output = hasher.finish().to_le_bytes().as_mut_ptr();
+#+END_SRC
+- calculates hash inside the ebpf program
+- --
+**** Updates the packet!
+#+BEGIN_SRC rust-ts
+  unsafe {
+      *udphdr_ptr = udphdr;
+      *ipv4hdr_ptr = ipv4hdr;
+      *ethhdr_ptr = ethhdr;
+      memcpy(data_ptr, output, 8);
+  }
+#+END_SRC
+- updates the incoming packet, switching source and destination
+- sends it back to the network interface, which then sends it out
+- --
+*** Lets run it!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+  sudo ./target/release/gaffer-xdp --iface enp1s0
+#+END_SRC
+
+**** Results
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+2024-05-30T12:40:20.869674Z  INFO video: Sent: 1269166, Received: 1142136
+2024-05-30T12:40:21.869737Z  INFO video: Sent: 1554872, Received: 1522331
+2024-05-30T12:40:22.869721Z  INFO video: Sent: 1578475, Received: 1563545
+2024-05-30T12:40:23.870128Z  INFO video: Sent: 1597837, Received: 1584520
+2024-05-30T12:40:24.870283Z  INFO video: Sent: 1598530, Received: 1596959
+#+END_SRC
+
+16000 clients! And the server is not even sweating!
+
+*** Lets run it!
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+    ./tokio10/release/video --server-addr 10.0.0.20:32001 --frequency 100 --client-count 2000
+    ./monoio10/release/video --server-addr 10.0.0.20:32001 --frequency 100 --client-count 2000
+#+END_SRC
+
+Lets run a version that sends 10 packets together.. so thats 2 million packets!
+
+**** Results
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+#+BEGIN_SRC bash-ts
+  INFO video: Sent: 1997430, Received: 1996067
+  INFO video: Sent: 1999760, Received: 1995899
+  INFO video: Sent: 1998820, Received: 2000444
+  INFO video: Sent: 2003580, Received: 2005223
+  INFO video: Sent: 2000340, Received: 2006123
+  INFO video: Sent: 2000960, Received: 2001861
+#+END_SRC
+
+#+BEGIN_SRC bash-ts
+  INFO video: Sent: 2139690, Received: 2109087
+  INFO video: Sent: 2297760, Received: 2221352
+  INFO video: Sent: 2298780, Received: 2214364
+#+END_SRC
+
+Holy wut! 2 million packets.. and look at that server not even blinking!
+
+* CONCLUSION
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+- XDP can change your life
+- I do not understand how thread per core was slower, and slightly faster when sending 10 packets per tick.
+- --
+
+** Future work
+:PROPERTIES:
+:DSLIDE_ACTIONS: dslide-action-item-reveal
+:END:
+- an XDP client? OMG! Thats crazy!
+  + its way harder! Lots of ring buffer wrangling!
+- a whole multiplayer networking stack in xdp? WOW!
+- --
+
+* QUESTIONS
+YOU! Questions?

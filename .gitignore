@@ -5,3 +5,5 @@
 /terraform/*.backup
 /terraform/.terraform.lock.hcl
 *.out
+/builds/
+/target/
